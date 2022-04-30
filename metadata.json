@@ -1,0 +1,9 @@
+{
+    "name": "name of the product",
+    "description": "description of the product"
+}
+
+
+
+//leaving feedback mints currency
+//make separate erc20 contract. call mint from sales contract
