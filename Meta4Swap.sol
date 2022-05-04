@@ -5,6 +5,7 @@ contract Meta4Swap {
     uint256 public itemCount = 0;
     uint256 public orderCount = 0;
 
+    //fee percentage for every order
     uint256 fee;
 
     struct Item {
@@ -27,6 +28,8 @@ contract Meta4Swap {
         uint256 exchangeRate;
         uint256 buyerState;
         uint256 sellerState;
+        bool isLive;
+        address buyer;
     }
 
     constructor(uint256 _fee) {
@@ -39,6 +42,15 @@ contract Meta4Swap {
     mapping(uint256 => Item) public itemInfo;
     // Array of all items created
     uint256[] public items;
+
+    // orderId to Order struct mapping
+    mapping(uint256 => Order) public orderInfo;
+
+
+
+
+
+
 
     function createItem(
         string memory _metadata,
@@ -88,6 +100,8 @@ contract Meta4Swap {
         _order.exchangeRate = chainLinkPrice;
         _order.buyerState = 0;
         _order.sellerState = 0;
+        _order.isLive = true;
+        _order.buyer = msg.sender;
 
         orderCount += 1;
 
@@ -99,4 +113,54 @@ contract Meta4Swap {
 
         return orderCount;
     }
+
+    //changing order states
+
+    //0 == active
+    //1 == complete
+    //2 = counter
+    //3 == update
+    //4 == cancel
+    //5 == dispute
+
+    function complete(uint256 _orderId) public {
+        require(orderInfo[_orderId].isLive == true, "Order no longer active");
+        require(orderInfo[_orderId].buyerState != 5, "Order in dispute");
+        require(orderInfo[_orderId].buyer == msg.sender || )
+
+        
+
+    }
+
+    //require that order is active and not in dispute
+    //if buyer and seller are both state complete, end order and pay
+    //
+
+    function counter(uint256 _orderId) public {}
+
+    function dispute(uint256 _orderId) public {}
+
+    function update(uint256 _orderId) public {}
+
+    function cancel(uint256 _orderId) public {}
+
+    //arbitration
+
+    function vote(uint256 _orderId) public {}
+
+    function resolve(uint256 _orderId) public {}
+
+    //edit Protocol
+
+    //edit fee
+    function editRules() public {}
+
+    //other actions
+
+    //rate order
+    function rate() public {}
+    //mint token for dao
+
+    //edit order
+    function editItem() public {}
 }
