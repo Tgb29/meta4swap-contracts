@@ -11,6 +11,10 @@ contract Meta4Swap {
     uint256 fee;
     uint256 disputeWindow; //window for dispute voting
     uint256 voteThreshold; //number of votes needed for dispute
+    uint256 minFee; // the minimum order size to earn rewards
+
+    //admin
+    uint256 earnings;
 
     struct Item {
         uint256 id;
@@ -31,8 +35,8 @@ contract Meta4Swap {
         uint256 quantityOrdered;
         uint256 ppu; // in fiat
         uint256 exchangeRate; // fiat to crypto
-        uint256 buyerState;
-        uint256 sellerState;
+        uint8 buyerState;
+        uint8 sellerState;
         bool isLive;
         address buyer;
         address seller;
@@ -46,7 +50,7 @@ contract Meta4Swap {
         uint256 sellerVotes;
         uint256 created; // when dispute created
         bool isLive; // is dispute open
-        uint256 winner; //who won the vote
+        uint8 winner; //who won the vote
     }
 
     struct Rating {
@@ -72,9 +76,19 @@ contract Meta4Swap {
     // Buyer/Seller to id[] mapping
     mapping(address => uint256[]) public myDisputes;
 
+    //user to Rating struct mapping
+    mapping(address => Rating) public myRating;
+
     constructor(uint256 _fee) {
         fee = _fee;
     }
+
+    event ItemCreated(uint256 _itemId);
+    event ItemUpdated(uint256 _itemId);
+    event OrderCreated(uint256 _orderId);
+    event OrderUpdated(uint256 _orderId);
+    event DisputeCreated(uint256 _orderId);
+    event DisputeUpdated(uint256 _orderId);
 
     modifier onlyCounterpart(uint256 _orderId) {
         require(
@@ -89,8 +103,7 @@ contract Meta4Swap {
         string memory _metadata,
         bool _live,
         uint256 _price,
-        uint256 _unit,
-        uint256 _rating
+        uint256 _unit
     ) public returns (uint256) {
         Item memory _item;
         _item.id = itemCount + 1;
@@ -104,6 +117,8 @@ contract Meta4Swap {
         itemInfo[_item.id] = _item;
 
         itemCount += 1;
+
+        emit ItemCreated(_item.id);
 
         return _item.id;
     }
@@ -149,7 +164,9 @@ contract Meta4Swap {
             payable(msg.sender).call{value: cashBack};
         }
 
-        return orderCount;
+        emit OrderCreated(_order.id);
+
+        return _order.id;
     }
 
     //changing order states
@@ -169,9 +186,13 @@ contract Meta4Swap {
         ) {
             orderInfo[_orderId].isLive == false;
             payable(orderInfo[_orderId].seller).call{
-                value: orderInfo[_orderId].amountPaid
+                value: (orderInfo[_orderId].amountPaid -
+                    (orderInfo[_orderId].amountPaid * fee))
             };
+            earnings += orderInfo[_orderId].amountPaid * fee;
         }
+
+        emit OrderUpdated(_orderId);
     }
 
     function cancel(uint256 _orderId) public {
@@ -179,8 +200,16 @@ contract Meta4Swap {
             msg.sender == orderInfo[_orderId].seller,
             "Only seller can cancel"
         );
-        // only seller can cancel
-        //if someone cancels, both states go to cancel
+        require(orderInfo[_orderId].isLive == true, "Order isn't active");
+        orderInfo[_orderId].sellerState = 2;
+        orderInfo[_orderId].buyerState = 2;
+        orderInfo[_orderId].isLive = false;
+
+        payable(orderInfo[_orderId].buyer).call{
+            value: orderInfo[_orderId].amountPaid
+        };
+
+        emit OrderUpdated(_orderId);
     }
 
     //disputes
@@ -199,11 +228,21 @@ contract Meta4Swap {
         myDisputes[orderInfo[_orderId].buyer].push(_orderId);
         myDisputes[orderInfo[_orderId].seller].push(_orderId);
 
-        //emit dispute event
+        emit DisputeCreated(_orderId);
     }
 
-    function updateDispute(uint256 _orderId) public onlyCounterpart(_orderId) {
-        //buyer or seller to update their positions
+    function updateDispute(uint256 _orderId, string memory _ipfsHash)
+        public
+        onlyCounterpart(_orderId)
+    {
+        require(disputeInfo[_orderId].isLive == true, "Dispute isn't live");
+        if (msg.sender == orderInfo[_orderId].buyer) {
+            disputeInfo[_orderId].buyerResponse = _ipfsHash;
+        } else if (msg.sender == orderInfo[_orderId].buyer) {
+            disputeInfo[_orderId].sellerResponse = _ipfsHash;
+        }
+
+        emit DisputeUpdated(_orderId);
     }
 
     function vote(uint256 _orderId) public {
@@ -214,6 +253,8 @@ contract Meta4Swap {
     function resolve(uint256 _orderId) public {
         require(disputeInfo[_orderId].isLive == true, "Dispute isn't live");
         //if min threshold is reached and window is closed, end.
+
+        emit DisputeUpdated(_orderId);
     }
 
     //edit Protocol
