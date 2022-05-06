@@ -3,7 +3,7 @@ pragma solidity ^0.8.7;
 
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 
-contract Meta4Swap is PriceConsumerV3 {
+contract Meta4Swap {
     uint256 public itemCount = 0;
     uint256 public orderCount = 0;
     uint256 public disputeCount = 0;
@@ -31,9 +31,9 @@ contract Meta4Swap is PriceConsumerV3 {
         uint256 id;
         uint256 itemId;
         uint256 amountPaid;
-        uint256 qty;
+        uint8 qty;
         uint256 price;
-        uint256 exchangeRate;
+        uint256 chainLinkPrice;
         uint8 buyerState;
         uint8 sellerState;
         bool isLive;
@@ -92,7 +92,7 @@ contract Meta4Swap is PriceConsumerV3 {
         priceFeed = AggregatorV3Interface(
             0x8A753747A1Fa494EC906cE90E9f37563A8AF630e
         );
-        fee = 10000000000000000000;
+        fee = 2500000000000000000;
         disputeWindow = 45500;
         minFee = 5000000000000000000;
         voteThreshold = 5;
@@ -147,7 +147,7 @@ contract Meta4Swap is PriceConsumerV3 {
         return _item.id;
     }
 
-    function createOrder(uint256 _itemId, uint256 _qty)
+    function createOrder(uint256 _itemId, uint8 _qty)
         public
         payable
         returns (uint256)
@@ -159,11 +159,11 @@ contract Meta4Swap is PriceConsumerV3 {
 
         Order memory _order;
 
-        _order.chainLinkPrice = getLatestPrice();
+        _order.chainLinkPrice = uint256(getLatestPrice());
 
-        uint256 orderPrice = (itemInfo[_itemId].price / _order.chainLinkPrice) *
-            _qty;
-        uint256 total = (fee * orderPrice) + orderPrice;
+        uint256 total = (fee *
+            ((itemInfo[_itemId].price / _order.chainLinkPrice) * _qty)) +
+            ((itemInfo[_itemId].price / _order.chainLinkPrice) * _qty);
 
         require(msg.value >= total, "Amount paid is less than total");
 
@@ -172,8 +172,6 @@ contract Meta4Swap is PriceConsumerV3 {
         _order.amountPaid = msg.value;
         _order.qty = _qty;
         _order.price = itemInfo[_itemId].price;
-        _order.buyerState = 0;
-        _order.sellerState = 0;
         _order.isLive = true;
         _order.buyer = msg.sender;
         _order.seller = itemInfo[_itemId].owner;
@@ -186,9 +184,8 @@ contract Meta4Swap is PriceConsumerV3 {
 
         if (msg.value > total) {
             // add safe math here
-            uint256 cashBack = msg.value - total;
             //send refund back to the user
-            payable(msg.sender).call{value: cashBack};
+            payable(msg.sender).call{value: (msg.value - total)};
         }
 
         emit OrderCreated(_order.id);
