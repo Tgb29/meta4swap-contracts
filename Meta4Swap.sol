@@ -1,28 +1,27 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.7;
 
-contract Meta4Swap {
+import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+
+contract Meta4Swap is PriceConsumerV3 {
     uint256 public itemCount = 0;
     uint256 public orderCount = 0;
     uint256 public disputeCount = 0;
 
     //marketplace variables
-    //fee percentage for every order
-    uint256 fee;
+
+    address owner;
+    uint256 earnings;
+    uint256 fee; //percentage
     uint256 disputeWindow; //window for dispute voting
     uint256 voteThreshold; //number of votes needed for dispute
     uint256 minFee; // the minimum order size to earn rewards
 
-    //admin
-    uint256 earnings;
-
     struct Item {
         uint256 id;
         string metadata;
-        uint256 quantity;
         bool isLive;
         uint256 price;
-        uint256 unit;
         address owner;
         uint256 ratingSum;
         uint256 ratingCount;
@@ -31,16 +30,17 @@ contract Meta4Swap {
     struct Order {
         uint256 id;
         uint256 itemId;
-        uint256 amountPaid; // in crypto
-        uint256 quantityOrdered;
-        uint256 ppu; // in fiat
-        uint256 exchangeRate; // fiat to crypto
+        uint256 amountPaid;
+        uint256 qty;
+        uint256 price;
+        uint256 exchangeRate;
         uint8 buyerState;
         uint8 sellerState;
         bool isLive;
         address buyer;
         address seller;
         uint256 created;
+        uint256 fee;
     }
 
     struct Dispute {
@@ -48,39 +48,54 @@ contract Meta4Swap {
         string sellerResponse;
         uint256 buyerVotes;
         uint256 sellerVotes;
-        uint256 created; // when dispute created
-        bool isLive; // is dispute open
-        uint8 winner; //who won the vote
+        uint256 created;
+        bool isLive;
+        uint8 winner;
     }
 
-    struct Rating {
+    struct Profile {
         uint256 cancelled;
         uint256 disputeWin;
         uint256 disputeLose;
         uint256 ratingSum;
         uint256 ratingCount;
+        uint256 completed;
+        uint256 earnings;
+        uint256 paid;
     }
 
     // itemId to Item struct mapping
     mapping(uint256 => Item) public itemInfo;
     // Owner to itemId[] mapping
-    mapping(address => uint256[]) public myItems;
+    mapping(address => uint256[]) public userItems;
 
     // orderId to Order struct mapping
     mapping(uint256 => Order) public orderInfo;
     // Buyer/Seller to id[] mapping
-    mapping(address => uint256[]) public myOrders;
+    mapping(address => uint256[]) public userOrders;
 
     //orderId to Dispute struct mapping
     mapping(uint256 => Dispute) public disputeInfo;
     // Buyer/Seller to id[] mapping
-    mapping(address => uint256[]) public myDisputes;
+    mapping(address => uint256[]) public userDisputes;
+    //vote check
+    mapping(address => mapping(uint256 => bool)) voteCheck;
 
     //user to Rating struct mapping
-    mapping(address => Rating) public myRating;
+    mapping(address => Profile) public userProfile;
+    //rating check
+    mapping(address => mapping(uint256 => bool)) ratingCheck;
 
-    constructor(uint256 _fee) {
-        fee = _fee;
+    AggregatorV3Interface internal priceFeed;
+
+    constructor() {
+        priceFeed = AggregatorV3Interface(
+            0x8A753747A1Fa494EC906cE90E9f37563A8AF630e
+        );
+        fee = 10000000000000000000;
+        disputeWindow = 45500;
+        minFee = 5000000000000000000;
+        voteThreshold = 5;
     }
 
     event ItemCreated(uint256 _itemId);
@@ -89,6 +104,12 @@ contract Meta4Swap {
     event OrderUpdated(uint256 _orderId);
     event DisputeCreated(uint256 _orderId);
     event DisputeUpdated(uint256 _orderId);
+    event RatingUpdated(
+        address _rater,
+        address _ratee,
+        uint256 _rating,
+        uint256 _orderId
+    );
 
     modifier onlyCounterpart(uint256 _orderId) {
         require(
@@ -99,21 +120,24 @@ contract Meta4Swap {
         _;
     }
 
+    modifier onlyOwner() {
+        require(owner == msg.sender);
+        _;
+    }
+
     function createItem(
         string memory _metadata,
         bool _live,
-        uint256 _price,
-        uint256 _unit
+        uint256 _price
     ) public returns (uint256) {
         Item memory _item;
         _item.id = itemCount + 1;
         _item.metadata = _metadata;
         _item.isLive = _live;
         _item.price = _price;
-        _item.unit = _unit;
         _item.owner = msg.sender;
 
-        myItems[msg.sender].push(_item.id);
+        userItems[msg.sender].push(_item.id);
         itemInfo[_item.id] = _item;
 
         itemCount += 1;
@@ -123,28 +147,31 @@ contract Meta4Swap {
         return _item.id;
     }
 
-    function createOrder(uint256 _itemId, uint256 _qtyOrdered)
+    function createOrder(uint256 _itemId, uint256 _qty)
         public
         payable
         returns (uint256)
     {
-        require(itemInfo[_itemId].isLive == true, "Item not for sale");
+        require(
+            itemInfo[_itemId].isLive == true,
+            "Item not for sale or doesn't exist."
+        );
 
-        uint256 chainLinkPrice; //call chain link node here
-        uint256 orderPrice = itemInfo[_itemId].price *
-            chainLinkPrice *
-            _qtyOrdered;
+        Order memory _order;
+
+        _order.chainLinkPrice = getLatestPrice();
+
+        uint256 orderPrice = (itemInfo[_itemId].price / _order.chainLinkPrice) *
+            _qty;
         uint256 total = (fee * orderPrice) + orderPrice;
 
         require(msg.value >= total, "Amount paid is less than total");
 
-        Order memory _order;
         _order.id = orderCount + 1;
         _order.itemId = _itemId;
         _order.amountPaid = msg.value;
-        _order.quantityOrdered = _qtyOrdered;
-        _order.ppu = itemInfo[_itemId].price * chainLinkPrice;
-        _order.exchangeRate = chainLinkPrice;
+        _order.qty = _qty;
+        _order.price = itemInfo[_itemId].price;
         _order.buyerState = 0;
         _order.sellerState = 0;
         _order.isLive = true;
@@ -153,8 +180,8 @@ contract Meta4Swap {
         _order.created = block.number;
 
         orderInfo[_order.id] = _order;
-        myOrders[_order.buyer].push(_order.id);
-        myOrders[_order.seller].push(_order.id);
+        userOrders[_order.buyer].push(_order.id);
+        userOrders[_order.seller].push(_order.id);
         orderCount += 1;
 
         if (msg.value > total) {
@@ -190,6 +217,16 @@ contract Meta4Swap {
                     (orderInfo[_orderId].amountPaid * fee))
             };
             earnings += orderInfo[_orderId].amountPaid * fee;
+            orderInfo[_orderId].fee = fee;
+
+            userProfile[orderInfo[_orderId].buyer].completed += 1;
+            userProfile[orderInfo[_orderId].buyer].paid += orderInfo[_orderId]
+                .amountPaid;
+
+            userProfile[orderInfo[_orderId].seller].completed += 1;
+            userProfile[orderInfo[_orderId].seller].earnings +=
+                (orderInfo[_orderId].amountPaid) -
+                (orderInfo[_orderId].amountPaid * fee);
         }
 
         emit OrderUpdated(_orderId);
@@ -204,6 +241,8 @@ contract Meta4Swap {
         orderInfo[_orderId].sellerState = 2;
         orderInfo[_orderId].buyerState = 2;
         orderInfo[_orderId].isLive = false;
+
+        userProfile[orderInfo[_orderId].seller].cancelled += 1;
 
         payable(orderInfo[_orderId].buyer).call{
             value: orderInfo[_orderId].amountPaid
@@ -225,8 +264,8 @@ contract Meta4Swap {
         _dispute.isLive = true;
 
         disputeInfo[_orderId] = _dispute;
-        myDisputes[orderInfo[_orderId].buyer].push(_orderId);
-        myDisputes[orderInfo[_orderId].seller].push(_orderId);
+        userDisputes[orderInfo[_orderId].buyer].push(_orderId);
+        userDisputes[orderInfo[_orderId].seller].push(_orderId);
 
         emit DisputeCreated(_orderId);
     }
@@ -245,41 +284,167 @@ contract Meta4Swap {
         emit DisputeUpdated(_orderId);
     }
 
-    function vote(uint256 _orderId) public {
+    function vote(uint256 _orderId, uint256 _vote) public {
         require(disputeInfo[_orderId].isLive == true, "Dispute isn't live");
-        //if min threshold isn't reached, ignore vote window and keep dispute open
+        require(voteCheck[msg.sender][_orderId] == false, "User already voted");
+
+        //add logic so only users with gov tokens can vote
+
+        //buyer == 0
+        if (_vote == 0) {
+            disputeInfo[_orderId].buyerVotes += 1;
+        }
+        //seller == 1
+        else if (_vote == 1) {
+            disputeInfo[_orderId].sellerVotes += 1;
+        }
+
+        voteCheck[msg.sender][_orderId] == true;
     }
 
     function resolve(uint256 _orderId) public {
-        require(disputeInfo[_orderId].isLive == true, "Dispute isn't live");
-        //if min threshold is reached and window is closed, end.
+        require(
+            disputeInfo[_orderId].isLive == true,
+            "Dispute isn't live or is already resolved."
+        );
+        require(
+            disputeInfo[_orderId].buyerVotes +
+                disputeInfo[_orderId].sellerVotes >
+                voteThreshold,
+            "Not enough votes"
+        );
+        require(
+            (block.number - disputeInfo[_orderId].created) > disputeWindow,
+            "Window for voting still open"
+        );
+        require(
+            disputeInfo[_orderId].buyerVotes !=
+                disputeInfo[_orderId].sellerVotes,
+            "Voting can't end in tie"
+        );
+
+        if (
+            disputeInfo[_orderId].buyerVotes > disputeInfo[_orderId].sellerVotes
+        ) {
+            //transfer money back to buyer
+            payable(orderInfo[_orderId].buyer).call{
+                value: orderInfo[_orderId].amountPaid
+            };
+
+            userProfile[orderInfo[_orderId].buyer].disputeWin += 1;
+            userProfile[orderInfo[_orderId].seller].disputeLose += 1;
+        } else {
+            //transfer money to selller
+            payable(orderInfo[_orderId].seller).call{
+                value: (orderInfo[_orderId].amountPaid -
+                    (orderInfo[_orderId].amountPaid * fee))
+            };
+            earnings += orderInfo[_orderId].amountPaid * fee;
+            userProfile[orderInfo[_orderId].buyer].disputeLose += 1;
+            userProfile[orderInfo[_orderId].seller].disputeWin += 1;
+        }
+
+        orderInfo[_orderId].sellerState = 4;
+        orderInfo[_orderId].buyerState = 4;
+
+        disputeInfo[_orderId].isLive = false;
 
         emit DisputeUpdated(_orderId);
     }
 
     //edit Protocol
 
-    function editRules() public {
-        //edit fee
-        //edit disputeWindow
-        //edit voteThreshold
+    function editRules(uint256 _variable, uint256 _value) public onlyOwner {
+        if (_variable == 0) {
+            //edit fee
+            fee = _value;
+        } else if (_variable == 1) {
+            //edit disputeWindow
+            disputeWindow = _value;
+        } else if (_variable == 2) {
+            voteThreshold = _value;
+        } else if (_variable == 3) {
+            voteThreshold = _value;
+        }
     }
 
-    //other actions
+    function transferOwner(address _newOwner) public onlyOwner {
+        owner = _newOwner;
+    }
 
     //rate order
-    function rate(uint256 _orderId) public onlyCounterpart(_orderId) {
-        //buyer or seller rate the order
+    function rate(uint256 _orderId, uint8 _rating)
+        public
+        onlyCounterpart(_orderId)
+    {
+        require(_rating > 0 && _rating < 6, "rating needs to be between 1-5");
+        require(
+            ratingCheck[msg.sender][_orderId] = false,
+            "Rating already left"
+        );
+
+        if (msg.sender == orderInfo[_orderId].buyer) {
+            itemInfo[orderInfo[_orderId].itemId].ratingSum += _rating;
+            itemInfo[orderInfo[_orderId].itemId].ratingCount += 1;
+            userProfile[orderInfo[_orderId].seller].ratingSum += _rating;
+            userProfile[orderInfo[_orderId].seller].ratingCount += 1;
+            ratingCheck[msg.sender][_orderId] = true;
+            emit RatingUpdated(
+                msg.sender,
+                orderInfo[_orderId].seller,
+                _rating,
+                _orderId
+            );
+        } else if (msg.sender == orderInfo[_orderId].seller) {
+            userProfile[orderInfo[_orderId].buyer].ratingSum += _rating;
+            userProfile[orderInfo[_orderId].buyer].ratingCount += 1;
+            ratingCheck[msg.sender][_orderId] = true;
+            emit RatingUpdated(
+                msg.sender,
+                orderInfo[_orderId].buyer,
+                _rating,
+                _orderId
+            );
+        }
     }
 
-    //mint token for dao
-
     //edit Item
-    function editItem(uint256 _itemId) public {
+    function editPrice(uint256 _itemId, uint256 _value) public {
         require(
             msg.sender == itemInfo[_itemId].owner,
             "Only item owner can edit"
         );
-        //change price or state of the order
+
+        itemInfo[_itemId].price = _value;
+    }
+
+    function editMeta(uint256 _itemId, string memory _metadata) public {
+        require(
+            msg.sender == itemInfo[_itemId].owner,
+            "Only item owner can edit"
+        );
+
+        itemInfo[_itemId].metadata = _metadata;
+    }
+
+    function editState(uint256 _itemId, bool _isLive) public {
+        require(
+            msg.sender == itemInfo[_itemId].owner,
+            "Only item owner can edit"
+        );
+
+        itemInfo[_itemId].isLive = _isLive;
+    }
+
+    function getLatestPrice() public view returns (int256) {
+        (
+            ,
+            /*uint80 roundID*/
+            int256 price, /*uint startedAt*/ /*uint timeStamp*/ /*uint80 answeredInRound*/
+            ,
+            ,
+
+        ) = priceFeed.latestRoundData();
+        return price;
     }
 }
