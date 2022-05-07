@@ -30,11 +30,17 @@ contract Meta4Swap {
     struct Order {
         uint256 id;
         uint256 itemId;
-        uint256[] paymentInfo;
-        uint8[] state;
-        address[] counterparts;
+        uint256 amountPaid;
+        uint8 qty;
+        uint256 price;
+        uint256 chainLinkPrice;
+        uint8 buyerState;
+        uint8 sellerState;
         bool isLive;
+        address buyer;
+        address seller;
         uint256 created;
+        uint256 fee;
     }
 
     struct Dispute {
@@ -70,7 +76,7 @@ contract Meta4Swap {
     //vote check
     mapping(address => mapping(uint256 => bool)) voteCheck;
 
-    //user to Profile struct mapping
+    //user to Rating struct mapping
     mapping(address => Profile) public userProfile;
 
     //rating check
@@ -103,8 +109,8 @@ contract Meta4Swap {
 
     modifier onlyCounterpart(uint256 _orderId) {
         require(
-            orderInfo[_orderId].counterparts[0] == msg.sender ||
-                orderInfo[_orderId].counterparts[1] == msg.sender,
+            orderInfo[_orderId].buyer == msg.sender ||
+                orderInfo[_orderId].seller == msg.sender,
             "Not authorized. Buyer or Seller only."
         );
         _;
@@ -148,22 +154,22 @@ contract Meta4Swap {
 
         Order memory _order;
 
-        _order.paymentInfo[0] = uint256(getLatestPrice());
+        _order.chainLinkPrice = uint256(getLatestPrice());
 
         uint256 total = (fee *
-            ((itemInfo[_itemId].price / _order.paymentInfo[0]) * _qty)) +
-            ((itemInfo[_itemId].price / _order.paymentInfo[0]) * _qty);
+            ((itemInfo[_itemId].price / _order.chainLinkPrice) * _qty)) +
+            ((itemInfo[_itemId].price / _order.chainLinkPrice) * _qty);
 
         require(msg.value >= total, "Amount paid is less than total");
 
         _order.id = orderCount + 1;
         _order.itemId = _itemId;
-        _order.paymentInfo[1] = msg.value; //amountPaid
-        _order.paymentInfo[2] = _qty; // quantityOrdered
-        _order.paymentInfo[3] = itemInfo[_itemId].price; //item price at time of order
+        _order.amountPaid = msg.value;
+        _order.qty = _qty;
+        _order.price = itemInfo[_itemId].price;
         _order.isLive = true;
-        _order.counterparts[0] = msg.sender; //buyer address
-        _order.counterparts[1] = itemInfo[_itemId].owner; //seller address
+        _order.buyer = msg.sender;
+        _order.seller = itemInfo[_itemId].owner;
         _order.created = block.number;
 
         orderInfo[_order.id] = _order;
@@ -185,33 +191,32 @@ contract Meta4Swap {
     function complete(uint256 _orderId) public onlyCounterpart(_orderId) {
         require(orderInfo[_orderId].isLive == true, "Order isn't active");
 
-        if (msg.sender == orderInfo[_orderId].counterparts[0]) {
-            orderInfo[_orderId].state[0] = 1;
-        } else if (msg.sender == orderInfo[_orderId].counterparts[1]) {
-            orderInfo[_orderId].state[1] = 1;
+        if (msg.sender == orderInfo[_orderId].buyer) {
+            orderInfo[_orderId].buyerState = 1;
+        } else if (msg.sender == orderInfo[_orderId].seller) {
+            orderInfo[_orderId].sellerState = 1;
         }
 
         if (
-            orderInfo[_orderId].state[0] == 1 &&
-            orderInfo[_orderId].state[1] == 1
+            orderInfo[_orderId].buyerState == 1 &&
+            orderInfo[_orderId].sellerState == 1
         ) {
             orderInfo[_orderId].isLive == false;
-            payable(orderInfo[_orderId].counterparts[1]).call{
-                value: (orderInfo[_orderId].paymentInfo[1] -
-                    (orderInfo[_orderId].paymentInfo[1] * fee))
+            payable(orderInfo[_orderId].seller).call{
+                value: (orderInfo[_orderId].amountPaid -
+                    (orderInfo[_orderId].amountPaid * fee))
             };
-            earnings += orderInfo[_orderId].paymentInfo[1] * fee;
-            orderInfo[_orderId].paymentInfo[4] = fee;
+            earnings += orderInfo[_orderId].amountPaid * fee;
+            orderInfo[_orderId].fee = fee;
 
-            userProfile[orderInfo[_orderId].counterparts[0]].completed += 1;
-            userProfile[orderInfo[_orderId].counterparts[0]].paid += orderInfo[
-                _orderId
-            ].paymentInfo[1];
+            userProfile[orderInfo[_orderId].buyer].completed += 1;
+            userProfile[orderInfo[_orderId].buyer].paid += orderInfo[_orderId]
+                .amountPaid;
 
-            userProfile[orderInfo[_orderId].counterparts[1]].completed += 1;
-            userProfile[orderInfo[_orderId].counterparts[1]].earnings +=
-                (orderInfo[_orderId].paymentInfo[1]) -
-                (orderInfo[_orderId].paymentInfo[1] * fee);
+            userProfile[orderInfo[_orderId].seller].completed += 1;
+            userProfile[orderInfo[_orderId].seller].earnings +=
+                (orderInfo[_orderId].amountPaid) -
+                (orderInfo[_orderId].amountPaid * fee);
         }
 
         emit OrderUpdated(_orderId);
@@ -219,18 +224,18 @@ contract Meta4Swap {
 
     function cancel(uint256 _orderId) public {
         require(
-            msg.sender == orderInfo[_orderId].counterparts[1],
+            msg.sender == orderInfo[_orderId].seller,
             "Only seller can cancel"
         );
         require(orderInfo[_orderId].isLive == true, "Order isn't active");
-        orderInfo[_orderId].state[1] = 2;
-        orderInfo[_orderId].state[0] = 2;
+        orderInfo[_orderId].sellerState = 2;
+        orderInfo[_orderId].buyerState = 2;
         orderInfo[_orderId].isLive = false;
 
-        userProfile[orderInfo[_orderId].counterparts[1]].cancelled += 1;
+        userProfile[orderInfo[_orderId].seller].cancelled += 1;
 
-        payable(orderInfo[_orderId].counterparts[0]).call{
-            value: orderInfo[_orderId].paymentInfo[1]
+        payable(orderInfo[_orderId].buyer).call{
+            value: orderInfo[_orderId].amountPaid
         };
 
         emit OrderUpdated(_orderId);
@@ -240,8 +245,8 @@ contract Meta4Swap {
 
     function dispute(uint256 _orderId) public onlyCounterpart(_orderId) {
         require(orderInfo[_orderId].isLive == true, "Order isn't active");
-        orderInfo[_orderId].state[1] = 3;
-        orderInfo[_orderId].state[0] = 3;
+        orderInfo[_orderId].sellerState = 3;
+        orderInfo[_orderId].buyerState = 3;
         orderInfo[_orderId].isLive = false;
 
         Dispute memory _dispute;
@@ -258,9 +263,9 @@ contract Meta4Swap {
         onlyCounterpart(_orderId)
     {
         require(disputeInfo[_orderId].isLive == true, "Dispute isn't live");
-        if (msg.sender == orderInfo[_orderId].counterparts[0]) {
+        if (msg.sender == orderInfo[_orderId].buyer) {
             disputeInfo[_orderId].buyerResponse = _ipfsHash;
-        } else if (msg.sender == orderInfo[_orderId].counterparts[1]) {
+        } else if (msg.sender == orderInfo[_orderId].buyer) {
             disputeInfo[_orderId].sellerResponse = _ipfsHash;
         }
 
@@ -310,25 +315,25 @@ contract Meta4Swap {
             disputeInfo[_orderId].buyerVotes > disputeInfo[_orderId].sellerVotes
         ) {
             //transfer money back to buyer
-            payable(orderInfo[_orderId].counterparts[0]).call{
-                value: orderInfo[_orderId].paymentInfo[1]
+            payable(orderInfo[_orderId].buyer).call{
+                value: orderInfo[_orderId].amountPaid
             };
 
-            userProfile[orderInfo[_orderId].counterparts[0]].disputeWin += 1;
-            userProfile[orderInfo[_orderId].counterparts[1]].disputeLose += 1;
+            userProfile[orderInfo[_orderId].buyer].disputeWin += 1;
+            userProfile[orderInfo[_orderId].seller].disputeLose += 1;
         } else {
             //transfer money to selller
-            payable(orderInfo[_orderId].counterparts[1]).call{
-                value: (orderInfo[_orderId].paymentInfo[1] -
-                    (orderInfo[_orderId].paymentInfo[1] * fee))
+            payable(orderInfo[_orderId].seller).call{
+                value: (orderInfo[_orderId].amountPaid -
+                    (orderInfo[_orderId].amountPaid * fee))
             };
-            earnings += orderInfo[_orderId].paymentInfo[1] * fee;
-            userProfile[orderInfo[_orderId].counterparts[0]].disputeLose += 1;
-            userProfile[orderInfo[_orderId].counterparts[1]].disputeWin += 1;
+            earnings += orderInfo[_orderId].amountPaid * fee;
+            userProfile[orderInfo[_orderId].buyer].disputeLose += 1;
+            userProfile[orderInfo[_orderId].seller].disputeWin += 1;
         }
 
-        orderInfo[_orderId].state[1] = 4;
-        orderInfo[_orderId].state[1] = 4;
+        orderInfo[_orderId].sellerState = 4;
+        orderInfo[_orderId].buyerState = 4;
 
         disputeInfo[_orderId].isLive = false;
 
@@ -366,27 +371,25 @@ contract Meta4Swap {
             "Rating already left"
         );
 
-        if (msg.sender == orderInfo[_orderId].counterparts[0]) {
+        if (msg.sender == orderInfo[_orderId].buyer) {
             itemInfo[orderInfo[_orderId].itemId].ratingSum += _rating;
             itemInfo[orderInfo[_orderId].itemId].ratingCount += 1;
-            userProfile[orderInfo[_orderId].counterparts[1]]
-                .ratingSum += _rating;
-            userProfile[orderInfo[_orderId].counterparts[1]].ratingCount += 1;
+            userProfile[orderInfo[_orderId].seller].ratingSum += _rating;
+            userProfile[orderInfo[_orderId].seller].ratingCount += 1;
             ratingCheck[msg.sender][_orderId] = true;
             emit RatingUpdated(
                 msg.sender,
-                orderInfo[_orderId].counterparts[1],
+                orderInfo[_orderId].seller,
                 _rating,
                 _orderId
             );
-        } else if (msg.sender == orderInfo[_orderId].counterparts[1]) {
-            userProfile[orderInfo[_orderId].counterparts[0]]
-                .ratingSum += _rating;
-            userProfile[orderInfo[_orderId].counterparts[0]].ratingCount += 1;
+        } else if (msg.sender == orderInfo[_orderId].seller) {
+            userProfile[orderInfo[_orderId].buyer].ratingSum += _rating;
+            userProfile[orderInfo[_orderId].buyer].ratingCount += 1;
             ratingCheck[msg.sender][_orderId] = true;
             emit RatingUpdated(
                 msg.sender,
-                orderInfo[_orderId].counterparts[0],
+                orderInfo[_orderId].buyer,
                 _rating,
                 _orderId
             );
@@ -401,6 +404,8 @@ contract Meta4Swap {
         );
 
         itemInfo[_itemId].price = _value;
+
+        emit ItemUpdated(_itemId);
     }
 
     function editMeta(uint256 _itemId, string memory _metadata) public {
@@ -410,6 +415,8 @@ contract Meta4Swap {
         );
 
         itemInfo[_itemId].metadata = _metadata;
+
+        emit ItemUpdated(_itemId);
     }
 
     function editState(uint256 _itemId, bool _isLive) public {
@@ -419,6 +426,8 @@ contract Meta4Swap {
         );
 
         itemInfo[_itemId].isLive = _isLive;
+
+        emit ItemUpdated(_itemId);
     }
 
     function getLatestPrice() public view returns (int256) {
