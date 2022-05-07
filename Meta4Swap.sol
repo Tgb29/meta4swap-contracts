@@ -413,6 +413,8 @@ contract Meta4Swap {
         );
 
         itemInfo[_itemId].price = _value;
+
+        emit ItemUpdated(_itemId);
     }
 
     function editMeta(uint256 _itemId, string memory _metadata) public {
@@ -422,6 +424,8 @@ contract Meta4Swap {
         );
 
         itemInfo[_itemId].metadata = _metadata;
+
+        emit ItemUpdated(_itemId);
     }
 
     function editState(uint256 _itemId, bool _isLive) public {
@@ -431,6 +435,8 @@ contract Meta4Swap {
         );
 
         itemInfo[_itemId].isLive = _isLive;
+
+        emit ItemUpdated(_itemId);
     }
 
     function getLatestPrice() public view returns (int256) {
