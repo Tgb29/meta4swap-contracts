@@ -94,18 +94,13 @@ contract Meta4Swap {
         voteThreshold = 5;
     }
 
-    event ItemCreated(uint256 _itemId);
-    event ItemUpdated(uint256 _itemId);
-    event OrderCreated(uint256 _orderId);
-    event OrderUpdated(uint256 _orderId);
-    event DisputeCreated(uint256 _orderId);
-    event DisputeUpdated(uint256 _orderId);
-    event RatingUpdated(
-        address _rater,
-        address _ratee,
-        uint256 _rating,
-        uint256 _orderId
-    );
+    event ItemCreated(uint256 itemId);
+    event ItemUpdated(uint256 itemId);
+    event OrderCreated(uint256 orderId);
+    event OrderUpdated(uint256 orderId);
+    event DisputeCreated(uint256 orderId);
+    event DisputeUpdated(uint256 orderId);
+    event RatingUpdated(uint256 orderId);
 
     modifier onlyCounterpart(uint256 _orderId) {
         require(
