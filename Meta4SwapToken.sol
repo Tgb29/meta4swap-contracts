@@ -10,6 +10,7 @@ contract Meta4SwapToken is ERC20 {
 
     constructor(uint256 initialSupply, address _dao) ERC20("Meta4Swap", "M4S") {
         _mint(msg.sender, initialSupply);
+        //dao is company on contract launch
         dao = _dao;
     }
 
@@ -32,13 +33,14 @@ contract Meta4SwapToken is ERC20 {
         marketplaces[_marketplace] = _approved;
     }
 
-    function updateDao(address _marketplace, bool _approved) {
+    function updateDao(address _newDao, bool _approved) {
         require(msg.sender == dao, "Only the DAO can replace itself.");
         dao = _dao;
     }
 
-    function redeem(address _redeemer, uint256 _amount) public {
-        require(msg.sender == dao, "Only the DAO can call call redeem.");
-        _burn(_amount);
+    function burn(address _redeemer, uint256 _amount) public {
+        require(msg.sender == dao, "Only the DAO can burn.");
+        _burn(_redeemer, _amount);
+        return true;
     }
 }

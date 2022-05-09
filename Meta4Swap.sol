@@ -355,6 +355,11 @@ contract Meta4Swap {
         owner = _newOwner;
     }
 
+    function transferEarnings() public {
+        payable(owner).call{value: earnings};
+        earnings = 0;
+    }
+
     //rate order
     function rate(uint256 _orderId, uint8 _rating)
         public
