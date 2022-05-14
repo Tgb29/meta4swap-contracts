@@ -25,9 +25,17 @@ contract Meta4SwapToken is ERC20 {
             _mint(_buyer, _rewardRates[0]);
             _mint(_seller, _rewardRates[1]);
             _mint(_company, _rewardRates[2]);
-        } else {}
+        }
+        return true;
     }
 
+    function burn(address _redeemer, uint256 _amount) public {
+        require(msg.sender == dao, "Only the DAO can burn.");
+        _burn(_redeemer, _amount);
+        return true;
+    }
+
+    //update functions
     function updateMarketplaces(address _marketplace, bool _approved) {
         require(msg.sender == dao, "Only the DAO can update marketplaces");
         marketplaces[_marketplace] = _approved;
@@ -36,11 +44,5 @@ contract Meta4SwapToken is ERC20 {
     function updateDao(address _newDao, bool _approved) {
         require(msg.sender == dao, "Only the DAO can replace itself.");
         dao = _dao;
-    }
-
-    function burn(address _redeemer, uint256 _amount) public {
-        require(msg.sender == dao, "Only the DAO can burn.");
-        _burn(_redeemer, _amount);
-        return true;
     }
 }

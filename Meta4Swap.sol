@@ -3,19 +3,37 @@ pragma solidity ^0.8.7;
 
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 
+interface Meta4SwapToken {
+    function mintReward(
+        address _buyer,
+        address _seller,
+        address _company,
+        uint256[] _rewardRates
+    ) external returns (bool);
+
+    function balanceOf(address _address) external returns (uint256);
+}
+
 contract Meta4Swap {
-    uint256 public itemCount = 0;
-    uint256 public orderCount = 0;
-    uint256 public disputeCount = 0;
+    uint256 public itemCount;
+    uint256 public orderCount;
+    uint256 public disputeCount;
 
-    //marketplace variables
+    address public dao;
+    address public company;
+    address public m4sToken;
+    address public priceFeed;
 
-    address owner;
-    uint256 earnings;
-    uint256 fee; //percentage
-    uint256 disputeWindow; //window for dispute voting
-    uint256 voteThreshold; //number of votes needed for dispute
-    uint256 minFee; // the minimum order size to earn rewards
+    uint256 public feeRate; //2.5 == 250
+    uint256 public disputeWindow; //window for dispute voting
+    uint256 public voteThreshold; //number of votes needed for dispute
+    uint256 public minFee; // the minimum order size to earn rewards
+    //bool variables
+    bool public rewardsLive;
+    //rewards
+    uint256 buyerReward;
+    uint256 sellerReward;
+    uint256 companyReward;
 
     struct Item {
         uint256 id;
@@ -30,7 +48,7 @@ contract Meta4Swap {
     struct Order {
         uint256 id;
         uint256 itemId;
-        uint256 amountPaid;
+        uint256 total;
         uint8 qty;
         uint256 price;
         uint256 chainLinkPrice;
@@ -61,37 +79,33 @@ contract Meta4Swap {
         uint256 ratingCount;
         uint256 completed;
         uint256 earnings;
-        uint256 paid;
+        uint256 expended;
     }
 
     // itemId to Item struct mapping
     mapping(uint256 => Item) public itemInfo;
-
     // orderId to Order struct mapping
     mapping(uint256 => Order) public orderInfo;
-
     //orderId to Dispute struct mapping
     mapping(uint256 => Dispute) public disputeInfo;
-
     //vote check
     mapping(address => mapping(uint256 => bool)) voteCheck;
-
     //user to Rating struct mapping
     mapping(address => Profile) public userProfile;
-
     //rating check
     mapping(address => mapping(uint256 => bool)) ratingCheck;
 
-    AggregatorV3Interface internal priceFeed;
-
     constructor() {
-        priceFeed = AggregatorV3Interface(
-            0x8A753747A1Fa494EC906cE90E9f37563A8AF630e
-        );
-        fee = 2500000000000000000;
+        feeRate = 250;
         disputeWindow = 45500;
-        minFee = 5000000000000000000;
+        minFee = 1000000000000000000;
         voteThreshold = 5;
+        buyerReward = 1 ether;
+        sellerReward = 1 ether;
+        companyReward = 1 ether;
+
+        company = msg.sender;
+        rewardsLive = true;
     }
 
     event ItemCreated(uint256 itemId);
@@ -108,11 +122,6 @@ contract Meta4Swap {
                 orderInfo[_orderId].seller == msg.sender,
             "Not authorized. Buyer or Seller only."
         );
-        _;
-    }
-
-    modifier onlyOwner() {
-        require(owner == msg.sender);
         _;
     }
 
@@ -151,17 +160,18 @@ contract Meta4Swap {
 
         _order.chainLinkPrice = uint256(getLatestPrice());
 
-        uint256 total = (fee *
-            ((itemInfo[_itemId].price / _order.chainLinkPrice) * _qty)) +
-            ((itemInfo[_itemId].price / _order.chainLinkPrice) * _qty);
+        uint256 total = (itemInfo[_itemId].price / _order.chainLinkPrice) *
+            _qty;
+        uint256 fee = (feeRate / 10000) * total;
 
         require(msg.value >= total, "Amount paid is less than total");
 
         _order.id = orderCount + 1;
         _order.itemId = _itemId;
-        _order.amountPaid = msg.value;
         _order.qty = _qty;
         _order.price = itemInfo[_itemId].price;
+        _order.total = total;
+        _order.fee = fee;
         _order.isLive = true;
         _order.buyer = msg.sender;
         _order.seller = itemInfo[_itemId].owner;
@@ -171,7 +181,6 @@ contract Meta4Swap {
         orderCount += 1;
 
         if (msg.value > total) {
-            // add safe math here
             //send refund back to the user
             payable(msg.sender).call{value: (msg.value - total)};
         }
@@ -197,21 +206,32 @@ contract Meta4Swap {
             orderInfo[_orderId].sellerState == 1
         ) {
             orderInfo[_orderId].isLive == false;
+            //pay seller
             payable(orderInfo[_orderId].seller).call{
-                value: (orderInfo[_orderId].amountPaid -
-                    (orderInfo[_orderId].amountPaid * fee))
+                value: (orderInfo[_orderId].total -
+                    orderInfo[_orderId].total.fee)
             };
-            earnings += orderInfo[_orderId].amountPaid * fee;
-            orderInfo[_orderId].fee = fee;
-
+            //collect fee
+            _transferEarnings(orderInfo[_orderId].fee);
+            //update buyer
             userProfile[orderInfo[_orderId].buyer].completed += 1;
-            userProfile[orderInfo[_orderId].buyer].paid += orderInfo[_orderId]
-                .amountPaid;
-
+            userProfile[orderInfo[_orderId].buyer].expended += orderInfo[
+                _orderId
+            ].amountPaid;
+            //update seller
             userProfile[orderInfo[_orderId].seller].completed += 1;
             userProfile[orderInfo[_orderId].seller].earnings +=
                 (orderInfo[_orderId].amountPaid) -
-                (orderInfo[_orderId].amountPaid * fee);
+                _fee;
+            //pay rewards
+            if (rewardsLive && orderInfo[_orderId].fee > minFee) {
+                Meta4SwapToken(m4sToken).mintReward(
+                    orderInfo[_orderId].buyer,
+                    orderInfo[_orderId].seller,
+                    company,
+                    rewards
+                );
+            }
         }
 
         emit OrderUpdated(_orderId);
@@ -230,8 +250,9 @@ contract Meta4Swap {
         userProfile[orderInfo[_orderId].seller].cancelled += 1;
 
         payable(orderInfo[_orderId].buyer).call{
-            value: orderInfo[_orderId].amountPaid
+            value: orderInfo[_orderId].total
         };
+        orderInfo[_orderId].fee = 0;
 
         emit OrderUpdated(_orderId);
     }
@@ -270,8 +291,10 @@ contract Meta4Swap {
     function vote(uint256 _orderId, uint256 _vote) public {
         require(disputeInfo[_orderId].isLive == true, "Dispute isn't live");
         require(voteCheck[msg.sender][_orderId] == false, "User already voted");
-
-        //add logic so only users with gov tokens can vote
+        require(
+            Meta4SwapToken(m4sToken).balanceOf(msg.sender) > 0,
+            "need m4s tokens to vote"
+        );
 
         //buyer == 0
         if (_vote == 0) {
@@ -311,18 +334,17 @@ contract Meta4Swap {
         ) {
             //transfer money back to buyer
             payable(orderInfo[_orderId].buyer).call{
-                value: orderInfo[_orderId].amountPaid
+                value: orderInfo[_orderId].total
             };
-
+            orderInfo[_orderId].fee = 0;
             userProfile[orderInfo[_orderId].buyer].disputeWin += 1;
             userProfile[orderInfo[_orderId].seller].disputeLose += 1;
         } else {
             //transfer money to selller
             payable(orderInfo[_orderId].seller).call{
-                value: (orderInfo[_orderId].amountPaid -
-                    (orderInfo[_orderId].amountPaid * fee))
+                value: (orderInfo[_orderId].total - orderInfo[_orderId].fee)
             };
-            earnings += orderInfo[_orderId].amountPaid * fee;
+            _transferEarnings(orderInfo[_orderId].fee);
             userProfile[orderInfo[_orderId].buyer].disputeLose += 1;
             userProfile[orderInfo[_orderId].seller].disputeWin += 1;
         }
@@ -335,29 +357,39 @@ contract Meta4Swap {
         emit DisputeUpdated(_orderId);
     }
 
-    //edit Protocol
-
-    function editRules(uint256 _variable, uint256 _value) public onlyOwner {
+    //DAO controls
+    function updateRules(uint256 _variable, uint256 _value) public {
+        require(dao == msg.sender);
         if (_variable == 0) {
-            //edit fee
-            fee = _value;
+            //edit feeRate
+            feeRate = _value;
         } else if (_variable == 1) {
             //edit disputeWindow
             disputeWindow = _value;
         } else if (_variable == 2) {
+            //edit voteThreshold
             voteThreshold = _value;
         } else if (_variable == 3) {
-            voteThreshold = _value;
+            //edit minFee
+            minFee = _value;
         }
     }
 
-    function transferOwner(address _newOwner) public onlyOwner {
-        owner = _newOwner;
-    }
-
-    function transferEarnings() public {
-        payable(owner).call{value: earnings};
-        earnings = 0;
+    //Company controls
+    function updateAddress(uint256 _value, address _newAddress) public {
+        require(msg.sender == company, "Only company can change address");
+        if (_value == 0) {
+            //DAO Address
+            dao = _newAddress;
+        } else if (_value = 1) {
+            //Company Address
+            company = _newAddress;
+        } else if (_value == 2) {
+            //Token Address
+            m4sToken = _newAddress;
+        } else if (_value == 3) {
+            //Price Feed Address
+        }
     }
 
     //rate order
@@ -377,22 +409,12 @@ contract Meta4Swap {
             userProfile[orderInfo[_orderId].seller].ratingSum += _rating;
             userProfile[orderInfo[_orderId].seller].ratingCount += 1;
             ratingCheck[msg.sender][_orderId] = true;
-            emit RatingUpdated(
-                msg.sender,
-                orderInfo[_orderId].seller,
-                _rating,
-                _orderId
-            );
+            emit RatingUpdated(_orderId);
         } else if (msg.sender == orderInfo[_orderId].seller) {
             userProfile[orderInfo[_orderId].buyer].ratingSum += _rating;
             userProfile[orderInfo[_orderId].buyer].ratingCount += 1;
             ratingCheck[msg.sender][_orderId] = true;
-            emit RatingUpdated(
-                msg.sender,
-                orderInfo[_orderId].buyer,
-                _rating,
-                _orderId
-            );
+            emit RatingUpdated(_orderId);
         }
     }
 
@@ -408,7 +430,7 @@ contract Meta4Swap {
         emit ItemUpdated(_itemId);
     }
 
-    function editMeta(uint256 _itemId, string memory _metadata) public {
+    function editMetadata(uint256 _itemId, string memory _metadata) public {
         require(
             msg.sender == itemInfo[_itemId].owner,
             "Only item owner can edit"
@@ -430,6 +452,12 @@ contract Meta4Swap {
         emit ItemUpdated(_itemId);
     }
 
+    //internal
+    function _transferEarnings(_amount) internal {
+        payable(owner).call{value: _amount};
+    }
+
+    //get Chain Link Price
     function getLatestPrice() public view returns (int256) {
         (
             ,
@@ -438,7 +466,7 @@ contract Meta4Swap {
             ,
             ,
 
-        ) = priceFeed.latestRoundData();
+        ) = AggregatorV3Interface(priceFeed).latestRoundData(); //0x8A753747A1Fa494EC906cE90E9f37563A8AF630e
         return price;
     }
 }
