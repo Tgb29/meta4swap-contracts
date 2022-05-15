@@ -20,7 +20,7 @@ contract Meta4SwapToken is ERC20 {
         address _seller,
         address _company,
         uint256[] _rewardRates
-    ) public {
+    ) public returns (bool) {
         if (marketplaces[msg.sender] == true) {
             _mint(_buyer, _rewardRates[0]);
             _mint(_seller, _rewardRates[1]);
@@ -29,7 +29,7 @@ contract Meta4SwapToken is ERC20 {
         return true;
     }
 
-    function burn(address _redeemer, uint256 _amount) public {
+    function burn(address _redeemer, uint256 _amount) public returns (bool) {
         require(msg.sender == dao, "Only the DAO can burn.");
         _burn(_redeemer, _amount);
         return true;

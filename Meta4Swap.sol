@@ -373,6 +373,8 @@ contract Meta4Swap {
             //edit minFee
             minFee = _value;
         }
+
+        return true;
     }
 
     //Company controls
@@ -389,6 +391,7 @@ contract Meta4Swap {
             m4sToken = _newAddress;
         } else if (_value == 3) {
             //Price Feed Address
+            priceFeed = _newAddress;
         }
     }
 
