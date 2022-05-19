@@ -8,7 +8,7 @@ interface Meta4SwapToken {
         address _buyer,
         address _seller,
         address _company,
-        uint256[] _rewardRates
+        uint256[3] calldata _rewardRates
     ) external returns (bool);
 
     function balanceOf(address _address) external returns (uint256);
@@ -160,9 +160,9 @@ contract Meta4Swap {
 
         _order.chainLinkPrice = uint256(getLatestPrice());
 
-        uint256 total = (itemInfo[_itemId].price / _order.chainLinkPrice) *
-            _qty;
-        uint256 fee = (feeRate / 10000) * total;
+        uint256 total = ((itemInfo[_itemId].price / _order.chainLinkPrice) *
+            10**8) * _qty;
+        uint256 fee = (feeRate * total) / 10000;
 
         require(msg.value >= total, "Amount paid is less than total");
 
@@ -208,8 +208,7 @@ contract Meta4Swap {
             orderInfo[_orderId].isLive == false;
             //pay seller
             payable(orderInfo[_orderId].seller).call{
-                value: (orderInfo[_orderId].total -
-                    orderInfo[_orderId].total.fee)
+                value: (orderInfo[_orderId].total - orderInfo[_orderId].fee)
             };
             //collect fee
             _transferEarnings(orderInfo[_orderId].fee);
@@ -217,19 +216,19 @@ contract Meta4Swap {
             userProfile[orderInfo[_orderId].buyer].completed += 1;
             userProfile[orderInfo[_orderId].buyer].expended += orderInfo[
                 _orderId
-            ].amountPaid;
+            ].total;
             //update seller
             userProfile[orderInfo[_orderId].seller].completed += 1;
             userProfile[orderInfo[_orderId].seller].earnings +=
-                (orderInfo[_orderId].amountPaid) -
-                _fee;
+                (orderInfo[_orderId].total) -
+                orderInfo[_orderId].fee;
             //pay rewards
             if (rewardsLive && orderInfo[_orderId].fee > minFee) {
                 Meta4SwapToken(m4sToken).mintReward(
                     orderInfo[_orderId].buyer,
                     orderInfo[_orderId].seller,
                     company,
-                    rewards
+                    [buyerReward, sellerReward, companyReward]
                 );
             }
         }
@@ -358,7 +357,10 @@ contract Meta4Swap {
     }
 
     //DAO controls
-    function updateRules(uint256 _variable, uint256 _value) public {
+    function updateRules(uint256 _variable, uint256 _value)
+        public
+        returns (bool)
+    {
         require(dao == msg.sender);
         if (_variable == 0) {
             //edit feeRate
@@ -383,7 +385,7 @@ contract Meta4Swap {
         if (_value == 0) {
             //DAO Address
             dao = _newAddress;
-        } else if (_value = 1) {
+        } else if (_value == 1) {
             //Company Address
             company = _newAddress;
         } else if (_value == 2) {
@@ -456,8 +458,8 @@ contract Meta4Swap {
     }
 
     //internal
-    function _transferEarnings(_amount) internal {
-        payable(owner).call{value: _amount};
+    function _transferEarnings(uint256 _amount) internal {
+        //payable(owner).call{value: _amount};
     }
 
     //get Chain Link Price
