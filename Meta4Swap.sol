@@ -4,12 +4,9 @@ pragma solidity ^0.8.7;
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 
 interface Meta4SwapToken {
-    function mintReward(
-        address _buyer,
-        address _seller,
-        address _company,
-        uint256[3] calldata _rewardRates
-    ) external returns (bool);
+    function mintReward(address _receiver, uint256 _rewardRate)
+        external
+        returns (bool);
 
     function balanceOf(address _address) external returns (uint256);
 }
@@ -17,7 +14,6 @@ interface Meta4SwapToken {
 contract Meta4Swap {
     uint256 public itemCount;
     uint256 public orderCount;
-    uint256 public disputeCount;
 
     address public dao;
     address public company;
@@ -89,11 +85,11 @@ contract Meta4Swap {
     //orderId to Dispute struct mapping
     mapping(uint256 => Dispute) public disputeInfo;
     //vote check
-    mapping(address => mapping(uint256 => bool)) voteCheck;
+    mapping(address => mapping(uint256 => bool)) public voteCheck;
     //user to Rating struct mapping
     mapping(address => Profile) public userProfile;
     //rating check
-    mapping(address => mapping(uint256 => bool)) ratingCheck;
+    mapping(address => mapping(uint256 => bool)) public ratingCheck;
 
     constructor() {
         feeRate = 250;
@@ -130,16 +126,15 @@ contract Meta4Swap {
         bool _live,
         uint256 _price
     ) public returns (uint256) {
+        itemCount++;
         Item memory _item;
-        _item.id = itemCount + 1;
+        _item.id = itemCount;
         _item.metadata = _metadata;
         _item.isLive = _live;
         _item.price = _price;
         _item.owner = msg.sender;
 
         itemInfo[_item.id] = _item;
-
-        itemCount += 1;
 
         emit ItemCreated(_item.id);
 
@@ -155,7 +150,7 @@ contract Meta4Swap {
             itemInfo[_itemId].isLive == true,
             "Item not for sale or doesn't exist."
         );
-
+        orderCount++;
         Order memory _order;
 
         _order.chainLinkPrice = uint256(getLatestPrice());
@@ -166,7 +161,7 @@ contract Meta4Swap {
 
         require(msg.value >= total, "Amount paid is less than total");
 
-        _order.id = orderCount + 1;
+        _order.id = orderCount;
         _order.itemId = _itemId;
         _order.qty = _qty;
         _order.price = itemInfo[_itemId].price;
@@ -178,7 +173,6 @@ contract Meta4Swap {
         _order.created = block.number;
 
         orderInfo[_order.id] = _order;
-        orderCount += 1;
 
         if (msg.value > total) {
             //send refund back to the user
@@ -195,7 +189,13 @@ contract Meta4Swap {
     function complete(uint256 _orderId) public onlyCounterpart(_orderId) {
         require(orderInfo[_orderId].isLive == true, "Order isn't active");
 
-        if (msg.sender == orderInfo[_orderId].buyer) {
+        if (
+            msg.sender == orderInfo[_orderId].buyer &&
+            msg.sender == orderInfo[_orderId].seller
+        ) {
+            orderInfo[_orderId].buyerState = 1;
+            orderInfo[_orderId].sellerState = 1;
+        } else if (msg.sender == orderInfo[_orderId].buyer) {
             orderInfo[_orderId].buyerState = 1;
         } else if (msg.sender == orderInfo[_orderId].seller) {
             orderInfo[_orderId].sellerState = 1;
@@ -220,16 +220,19 @@ contract Meta4Swap {
             //update seller
             userProfile[orderInfo[_orderId].seller].completed += 1;
             userProfile[orderInfo[_orderId].seller].earnings +=
-                (orderInfo[_orderId].total) -
+                orderInfo[_orderId].total -
                 orderInfo[_orderId].fee;
             //pay rewards
             if (rewardsLive && orderInfo[_orderId].fee > minFee) {
                 Meta4SwapToken(m4sToken).mintReward(
                     orderInfo[_orderId].buyer,
-                    orderInfo[_orderId].seller,
-                    company,
-                    [buyerReward, sellerReward, companyReward]
+                    buyerReward
                 );
+                Meta4SwapToken(m4sToken).mintReward(
+                    orderInfo[_orderId].seller,
+                    sellerReward
+                );
+                Meta4SwapToken(m4sToken).mintReward(company, companyReward);
             }
         }
 
@@ -414,11 +417,21 @@ contract Meta4Swap {
             userProfile[orderInfo[_orderId].seller].ratingSum += _rating;
             userProfile[orderInfo[_orderId].seller].ratingCount += 1;
             ratingCheck[msg.sender][_orderId] = true;
+            Meta4SwapToken(m4sToken).mintReward(
+                orderInfo[_orderId].buyer,
+                buyerReward
+            );
+            Meta4SwapToken(m4sToken).mintReward(company, companyReward / 2);
             emit RatingUpdated(_orderId);
         } else if (msg.sender == orderInfo[_orderId].seller) {
             userProfile[orderInfo[_orderId].buyer].ratingSum += _rating;
             userProfile[orderInfo[_orderId].buyer].ratingCount += 1;
             ratingCheck[msg.sender][_orderId] = true;
+            Meta4SwapToken(m4sToken).mintReward(
+                orderInfo[_orderId].seller,
+                sellerReward
+            );
+            Meta4SwapToken(m4sToken).mintReward(company, companyReward / 2);
             emit RatingUpdated(_orderId);
         }
     }
@@ -459,7 +472,7 @@ contract Meta4Swap {
 
     //internal
     function _transferEarnings(uint256 _amount) internal {
-        //payable(owner).call{value: _amount};
+        payable(owner).call{value: _amount};
     }
 
     //get Chain Link Price

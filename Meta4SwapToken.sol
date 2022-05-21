@@ -7,24 +7,22 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 contract Meta4SwapToken is ERC20 {
     mapping(address => bool) public marketplaces;
     address public dao;
+    address public company;
 
-    constructor(uint256 initialSupply, address _dao) ERC20("Meta4Swap", "M4S") {
+    constructor(uint256 initialSupply, address _company)
+        ERC20("Meta4Swap", "M4S")
+    {
         _mint(msg.sender, initialSupply);
-        //dao is company on contract launch
-        dao = _dao;
+        company = _company;
     }
 
     //only marketplaces can mint
-    function mintReward(
-        address _buyer,
-        address _seller,
-        address _company,
-        uint256[] calldata _rewardRates
-    ) public returns (bool) {
+    function mintReward(address _receiver, uint256 _rewardRate)
+        public
+        returns (bool)
+    {
         if (marketplaces[msg.sender] == true) {
-            _mint(_buyer, _rewardRates[0]);
-            _mint(_seller, _rewardRates[1]);
-            _mint(_company, _rewardRates[2]);
+            _mint(_receiver, _rewardRate);
         }
         return true;
     }
@@ -37,12 +35,18 @@ contract Meta4SwapToken is ERC20 {
 
     //update functions
     function updateMarketplaces(address _marketplace, bool _approved) public {
-        require(msg.sender == dao, "Only the DAO can update marketplaces");
+        require(msg.sender == company, "Only the DAO can update marketplaces");
         marketplaces[_marketplace] = _approved;
     }
 
-    function updateDao(address _newDao) public {
-        require(msg.sender == dao, "Only the DAO can replace itself.");
-        dao = _newDao;
+    function updateAddress(uint256 _value, address _newAddress) public {
+        require(msg.sender == company, "Only company can change address");
+        if (_value == 0) {
+            //Company Address
+            company = _newAddress;
+        } else if (_value == 1) {
+            //DAO Address
+            dao = _newAddress;
+        }
     }
 }
