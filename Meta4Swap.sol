@@ -39,6 +39,7 @@ contract Meta4Swap {
         address owner;
         uint256 ratingSum;
         uint256 ratingCount;
+        uint256 productType;
     }
 
     struct Order {
@@ -104,7 +105,7 @@ contract Meta4Swap {
         rewardsLive = true;
     }
 
-    event ItemCreated(uint256 itemId);
+    event ItemCreated(uint256 itemId, address _creator, string _metadata);
     event ItemUpdated(uint256 itemId);
     event OrderCreated(uint256 orderId);
     event OrderUpdated(uint256 orderId);
@@ -124,7 +125,8 @@ contract Meta4Swap {
     function createItem(
         string memory _metadata,
         bool _live,
-        uint256 _price
+        uint256 _price,
+        uint256 _productType
     ) public returns (uint256) {
         itemCount++;
         Item memory _item;
@@ -133,10 +135,16 @@ contract Meta4Swap {
         _item.isLive = _live;
         _item.price = _price;
         _item.owner = msg.sender;
+        _item.productType = _productType;
 
         itemInfo[_item.id] = _item;
 
-        emit ItemCreated(_item.id);
+        emit ItemCreated(
+            _item.id,
+            _item.owner,
+            _item.metadata,
+            _item.productType
+        );
 
         return _item.id;
     }
