@@ -105,7 +105,12 @@ contract Meta4Swap {
         rewardsLive = true;
     }
 
-    event ItemCreated(uint256 itemId, address _creator, string _metadata);
+    event ItemCreated(
+        uint256 itemId,
+        address creator,
+        string metadata,
+        uint256 productType
+    );
     event ItemUpdated(uint256 itemId);
     event OrderCreated(uint256 orderId);
     event OrderUpdated(uint256 orderId);
@@ -184,7 +189,11 @@ contract Meta4Swap {
 
         if (msg.value > total) {
             //send refund back to the user
-            payable(msg.sender).call{value: (msg.value - total)};
+            (bool sent, bytes memory data) = msg.sender.call{
+                value: (msg.value - total)
+            }("");
+            data;
+            require(sent, "Failed to Send Ether");
         }
 
         emit OrderCreated(_order.id);
@@ -215,9 +224,11 @@ contract Meta4Swap {
         ) {
             orderInfo[_orderId].isLive == false;
             //pay seller
-            payable(orderInfo[_orderId].seller).call{
+            (bool sent, bytes memory data) = orderInfo[_orderId].seller.call{
                 value: (orderInfo[_orderId].total - orderInfo[_orderId].fee)
-            };
+            }("");
+            data;
+            require(sent, "Failed to Send Ether");
             //collect fee
             _transferEarnings(orderInfo[_orderId].fee);
             //update buyer
@@ -259,9 +270,12 @@ contract Meta4Swap {
 
         userProfile[orderInfo[_orderId].seller].cancelled += 1;
 
-        payable(orderInfo[_orderId].buyer).call{
-            value: orderInfo[_orderId].total
-        };
+        (bool sent, bytes memory data) = orderInfo[_orderId].buyer.call{
+            value: (orderInfo[_orderId].total)
+        }("");
+        data;
+        require(sent, "Failed to Send Ether");
+
         orderInfo[_orderId].fee = 0;
 
         emit OrderUpdated(_orderId);
@@ -343,17 +357,22 @@ contract Meta4Swap {
             disputeInfo[_orderId].buyerVotes > disputeInfo[_orderId].sellerVotes
         ) {
             //transfer money back to buyer
-            payable(orderInfo[_orderId].buyer).call{
+            (bool sent, bytes memory data) = orderInfo[_orderId].buyer.call{
                 value: orderInfo[_orderId].total
-            };
+            }("");
+            data;
+            require(sent, "Failed to Send Ether");
+
             orderInfo[_orderId].fee = 0;
             userProfile[orderInfo[_orderId].buyer].disputeWin += 1;
             userProfile[orderInfo[_orderId].seller].disputeLose += 1;
         } else {
             //transfer money to selller
-            payable(orderInfo[_orderId].seller).call{
+            (bool sent, bytes memory data) = orderInfo[_orderId].seller.call{
                 value: (orderInfo[_orderId].total - orderInfo[_orderId].fee)
-            };
+            }("");
+            data;
+            require(sent, "Failed to Send Ether");
             _transferEarnings(orderInfo[_orderId].fee);
             userProfile[orderInfo[_orderId].buyer].disputeLose += 1;
             userProfile[orderInfo[_orderId].seller].disputeWin += 1;
@@ -480,7 +499,9 @@ contract Meta4Swap {
 
     //internal
     function _transferEarnings(uint256 _amount) internal {
-        payable(owner).call{value: _amount};
+        (bool sent, bytes memory data) = company.call{value: _amount}("");
+        data;
+        require(sent, "Failed to Send Ether");
     }
 
     //get Chain Link Price
