@@ -94,9 +94,9 @@ contract Meta4Swap {
 
     constructor() {
         feeRate = 250;
-        disputeWindow = 45500;
-        minFee = 1000000000000000000;
-        voteThreshold = 5;
+        disputeWindow = 10;
+        minFee = 0;
+        voteThreshold = 1;
         buyerReward = 1 ether;
         sellerReward = 1 ether;
         companyReward = 1 ether;
@@ -112,7 +112,18 @@ contract Meta4Swap {
         uint256 productType
     );
     event ItemUpdated(uint256 itemId);
-    event OrderCreated(uint256 orderId);
+    event OrderCreatedBuyer(
+        uint256 orderId,
+        uint256 itemId,
+        uint256 price,
+        address buyer
+    );
+    event OrderCreatedSeller(
+        uint256 orderId,
+        uint256 itemId,
+        uint256 price,
+        address seller
+    );
     event OrderUpdated(uint256 orderId);
     event DisputeCreated(uint256 orderId);
     event DisputeUpdated(uint256 orderId);
@@ -196,7 +207,18 @@ contract Meta4Swap {
             require(sent, "Failed to Send Ether");
         }
 
-        emit OrderCreated(_order.id);
+        emit OrderCreatedBuyer(
+            _order.id,
+            _order.itemId,
+            _order.total,
+            _order.buyer
+        );
+        emit OrderCreatedSeller(
+            _order.id,
+            _order.itemId,
+            _order.total,
+            _order.seller
+        );
 
         return _order.id;
     }
@@ -222,7 +244,7 @@ contract Meta4Swap {
             orderInfo[_orderId].buyerState == 1 &&
             orderInfo[_orderId].sellerState == 1
         ) {
-            orderInfo[_orderId].isLive == false;
+            orderInfo[_orderId].isLive = false;
             //pay seller
             (bool sent, bytes memory data) = orderInfo[_orderId].seller.call{
                 value: (orderInfo[_orderId].total - orderInfo[_orderId].fee)
@@ -242,7 +264,7 @@ contract Meta4Swap {
                 orderInfo[_orderId].total -
                 orderInfo[_orderId].fee;
             //pay rewards
-            if (rewardsLive && orderInfo[_orderId].fee > minFee) {
+            if (rewardsLive && orderInfo[_orderId].fee >= minFee) {
                 Meta4SwapToken(m4sToken).mintReward(
                     orderInfo[_orderId].buyer,
                     buyerReward
@@ -312,7 +334,7 @@ contract Meta4Swap {
         emit DisputeUpdated(_orderId);
     }
 
-    function vote(uint256 _orderId, uint256 _vote) public {
+    function vote(uint256 _orderId, uint256 _vote) public returns (bool) {
         require(disputeInfo[_orderId].isLive == true, "Dispute isn't live");
         require(voteCheck[msg.sender][_orderId] == false, "User already voted");
         require(
@@ -320,16 +342,30 @@ contract Meta4Swap {
             "need m4s tokens to vote"
         );
 
+        if ((block.number - disputeInfo[_orderId].created) > disputeWindow) {
+            if (
+                disputeInfo[_orderId].buyerVotes +
+                    disputeInfo[_orderId].sellerVotes >
+                voteThreshold
+            ) {
+                return false;
+            }
+        }
+
         //buyer == 0
         if (_vote == 0) {
-            disputeInfo[_orderId].buyerVotes += 1;
+            disputeInfo[_orderId].buyerVotes += Meta4SwapToken(m4sToken)
+                .balanceOf(msg.sender);
         }
         //seller == 1
         else if (_vote == 1) {
-            disputeInfo[_orderId].sellerVotes += 1;
+            disputeInfo[_orderId].sellerVotes += Meta4SwapToken(m4sToken)
+                .balanceOf(msg.sender);
         }
 
         voteCheck[msg.sender][_orderId] == true;
+
+        return true;
     }
 
     function resolve(uint256 _orderId) public {
@@ -427,6 +463,14 @@ contract Meta4Swap {
         }
     }
 
+    function updateRewardsisLive(bool _state) public {
+        require(
+            msg.sender == company,
+            "Only company can update rewards status"
+        );
+        rewardsLive = _state;
+    }
+
     //rate order
     function rate(uint256 _orderId, uint8 _rating)
         public
@@ -434,7 +478,7 @@ contract Meta4Swap {
     {
         require(_rating > 0 && _rating < 6, "rating needs to be between 1-5");
         require(
-            ratingCheck[msg.sender][_orderId] = false,
+            ratingCheck[msg.sender][_orderId] == false,
             "Rating already left"
         );
 
@@ -514,6 +558,7 @@ contract Meta4Swap {
             ,
 
         ) = AggregatorV3Interface(priceFeed).latestRoundData(); //0x8A753747A1Fa494EC906cE90E9f37563A8AF630e
+        // matic 0xAB594600376Ec9fD91F8e885dADF0CE036862dE0
         return price;
     }
 }

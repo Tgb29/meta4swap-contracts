@@ -9,11 +9,9 @@ contract Meta4SwapToken is ERC20 {
     address public dao;
     address public company;
 
-    constructor(uint256 initialSupply, address _company)
-        ERC20("Meta4Swap", "M4S")
-    {
+    constructor(uint256 initialSupply) ERC20("Meta4Swap", "M4S") {
         _mint(msg.sender, initialSupply);
-        company = _company;
+        company = msg.sender;
     }
 
     //only marketplaces can mint
@@ -28,7 +26,6 @@ contract Meta4SwapToken is ERC20 {
     }
 
     function burn(address _redeemer, uint256 _amount) public returns (bool) {
-        require(msg.sender == dao, "Only the DAO can burn.");
         _burn(_redeemer, _amount);
         return true;
     }

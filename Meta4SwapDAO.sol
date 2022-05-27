@@ -58,9 +58,9 @@ contract Meta4SwapDAO {
 
     constructor() {
         company = msg.sender;
-        proposalWindow = 45500;
-        proposalThreshold = 1 ether;
-        votingThreshold = 1 ether;
+        proposalWindow = 0;
+        proposalThreshold = 0 ether;
+        votingThreshold = 0 ether;
     }
 
     //for any token holder to use
@@ -84,15 +84,16 @@ contract Meta4SwapDAO {
             Meta4SwapToken(m4sToken).balanceOf(msg.sender) > proposalThreshold,
             "User doesn't have enough tokens"
         );
+        proposalCount++;
 
         Proposal memory _proposal;
-        _proposal.id = proposalCount + 1;
+        _proposal.id = proposalCount;
         _proposal.proposer = msg.sender;
         _proposal.proposition = [_variable, _value];
         _proposal.created = block.number;
         _proposal.isLive = true;
 
-        proposalCount += 1;
+        proposals[proposalCount] = _proposal;
 
         emit ProposalCreated(msg.sender, _proposal.id);
 
@@ -109,10 +110,13 @@ contract Meta4SwapDAO {
             "User doesn't have enough tokens"
         );
         require(proposals[_proposalId].isLive == true, "Proposal not live");
+        //commented out to make demo in hackathon easier
+        /*
         require(
             block.number - proposals[_proposalId].created < proposalWindow,
             "Window closed"
         );
+        */
 
         Meta4SwapToken(m4sToken).transferFrom(
             msg.sender,
@@ -191,6 +195,17 @@ contract Meta4SwapDAO {
         } else if (_value == 2) {
             //Meta4Swap Token Address
             m4sToken = _newAddress;
+        }
+    }
+
+    function updateControls(uint256 _control, uint256 _value) public {
+        require(msg.sender == company, "Only company can update");
+        if (_control == 0) {
+            proposalWindow = _value;
+        } else if (_control == 1) {
+            proposalThreshold = _value;
+        } else if (_control == 2) {
+            votingThreshold = _value;
         }
     }
 }
