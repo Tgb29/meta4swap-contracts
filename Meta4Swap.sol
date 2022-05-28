@@ -557,8 +557,9 @@ contract Meta4Swap {
             ,
             ,
 
-        ) = AggregatorV3Interface(priceFeed).latestRoundData(); //0x8A753747A1Fa494EC906cE90E9f37563A8AF630e
-        // matic 0xAB594600376Ec9fD91F8e885dADF0CE036862dE0
+        ) = AggregatorV3Interface(priceFeed).latestRoundData();
+        // avax main net 0x0A77230d17318075983913bC2145DB16C7366156
+        //avax test net 0x5498BB86BC934c8D34FDA08E81D444153d0D06aD
         return price;
     }
 }
