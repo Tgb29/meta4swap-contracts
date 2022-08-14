@@ -14,25 +14,20 @@ interface Meta4SwapToken {
 contract Meta4Swap {
     //business logic
     uint256 public orderCount;
-
-    uint256 public fee; //2.5 == 250
-
-
-    uint256 public disputeWindow; //window for dispute settlement. time in block.number
-    //uint256 public voteThreshold; //number of votes needed for dispute. approved to handle dispute.
+    uint256 public itemCount;
+    uint256 public marketplaceFee; //2.5 == 250
     
-    uint256 public minFee; // the minimum order size to earn rewards
-    bool public rewardsLive;
-
     //admin
     address public dao;
     address public m4sToken;
     address public priceFeed;
 
     //rewards
-    uint256 buyerReward; // amount
-    uint256 sellerReward; // amount
-    uint256 daoReward; // dao
+    uint256 public buyerReward; // amount
+    uint256 public sellerReward; // amount
+    uint256 public daoReward; // dao
+    uint256 public minFee; // the minimum order size to earn rewards
+    bool public rewardsLive;
 
     struct Item {
         uint256 id;
@@ -40,22 +35,18 @@ contract Meta4Swap {
         bool isLive;
         uint256 price;
         address owner;
-        uint256 ratingSum;
-        uint256 ratingCount;
-        uint256 productType;
+        uint256 serviceType;
     }
 
     struct Order {
         uint256 id;
-        address itemAddress;
         uint256 itemId;
 
-        uint256 total;
-        uint8 qty;
+        uint256 orderTotal;
         uint256 created;
         uint256 fee;
    
-        uint256 price;
+        uint256 itemPrice;
         uint256 chainLinkPrice;
 
         uint8 buyerState;
@@ -64,56 +55,41 @@ contract Meta4Swap {
         bool isLive;
         address buyer;
         address seller;
-    
      }
 
-        
-        
 
     struct Dispute {
         string buyerResponse;
         string sellerResponse;
-        uint256 buyerVotes;
-        uint256 sellerVotes;
         uint256 created;
-        bool isLive;
-        uint8 winner;
+        bool state;
     }
 
     struct Profile {
         uint256 cancelled;
-        uint256 disputeWin;
-        uint256 disputeLose;
+        uint256 completed;
+        uint256 disputes;
         uint256 ratingSum;
         uint256 ratingCount;
-        uint256 completed;
-        uint256 earnings;
-        uint256 expended;
     }
+    
+    mapping(uint256 => Item) public itemInfo; // itemId to Item struct mapping
+    mapping(uint256 => Order) public orderInfo; // orderId to Order struct mapping
+    mapping(address => mapping(uint256 => bool)) public offerInfo; //offers per item
+    
+    mapping(uint256 => Dispute) public disputeInfo; //orderId to Dispute struct mapping
 
-    // itemId to Item struct mapping
-    mapping(uint256 => Item) public itemInfo;
-    // orderId to Order struct mapping
-    mapping(uint256 => Order) public orderInfo;
-    //orderId to Dispute struct mapping
-    mapping(uint256 => Dispute) public disputeInfo;
-    //vote check
-    mapping(address => mapping(uint256 => bool)) public voteCheck;
-    //user to Rating struct mapping
-    mapping(address => Profile) public userProfile;
-    //rating check
-    mapping(address => mapping(uint256 => bool)) public ratingCheck;
+    mapping(address => Profile) public userProfile; //user profile mapping
+    
+    mapping(address => mapping(uint256 => bool)) public ratingCheck; //check to prevent duplicate ratings
 
     constructor() {
         fee = 250;
-        disputeWindow = 10;
         minFee = 0;
-        voteThreshold = 1;
         buyerReward = 1 ether;
         sellerReward = 1 ether;
         daoReward = 1 ether;
-
-        company = msg.sender;
+        dao = msg.sender;
         rewardsLive = true;
     }
 
@@ -121,25 +97,29 @@ contract Meta4Swap {
         uint256 itemId,
         address creator,
         string metadata,
-        uint256 productType
+        uint256 itemType
     );
-    event ItemUpdated(uint256 itemId);
-    event OrderCreatedBuyer(
+    event ItemUpdated(
+        uint256 itemId
+    );
+
+    event OrderCreated(
         uint256 orderId,
         uint256 itemId,
         uint256 price,
-        address buyer
+        address orderType;
+        address buyer;
+        address seller;
     );
-    event OrderCreatedSeller(
-        uint256 orderId,
-        uint256 itemId,
-        uint256 price,
-        address seller
+
+    event OrderUpdated(
+        uint256 orderId
     );
-    event OrderUpdated(uint256 orderId);
+
     event DisputeCreated(uint256 orderId);
     event DisputeUpdated(uint256 orderId);
-    event RatingUpdated(uint256 orderId);
+
+    event RatingCreated(uint256 orderId);
 
     modifier onlyCounterpart(uint256 _orderId) {
         require(
@@ -150,20 +130,20 @@ contract Meta4Swap {
         _;
     }
 
-    function createItem(
+    function create(
         string memory _metadata,
-        bool _live,
+        bool _state,
         uint256 _price,
-        uint256 _productType
+        uint256 _serviceType
     ) public returns (uint256) {
         itemCount++;
         Item memory _item;
         _item.id = itemCount;
         _item.metadata = _metadata;
-        _item.isLive = _live;
+        _item.isLive = _state;
         _item.price = _price;
         _item.owner = msg.sender;
-        _item.productType = _productType;
+        _item.serviceType = _serviceType;
 
         itemInfo[_item.id] = _item;
 
@@ -171,13 +151,13 @@ contract Meta4Swap {
             _item.id,
             _item.owner,
             _item.metadata,
-            _item.productType
+            _item.serviceType
         );
 
         return _item.id;
     }
 
-    function createOrder(uint256 _itemId, uint8 _qty)
+    function buy(uint256 _itemId)
         public
         payable
         returns (uint256)
@@ -186,28 +166,26 @@ contract Meta4Swap {
             itemInfo[_itemId].isLive == true,
             "Item not for sale or doesn't exist."
         );
+
         orderCount++;
         Order memory _order;
 
         _order.chainLinkPrice = uint256(getLatestPrice());
-
-        uint256 total = ((itemInfo[_itemId].price / _order.chainLinkPrice) *
-            10**8) * _qty;
-        uint256 fee = (fee * total) / 10000;
-
-        require(msg.value >= total, "Amount paid is less than total");
+        uint256 orderTotal = ((itemInfo[_itemId].itemPrice / _order.chainLinkPrice) *
+            10**8);
+        uint256 orderFee = (marketplaceFee * orderTotal) / 10000;
+        require(msg.value >= orderTotal, "Amount paid is less than total");
 
         _order.id = orderCount;
         _order.itemId = _itemId;
-        _order.qty = _qty;
-        _order.price = itemInfo[_itemId].price;
-        _order.total = total;
-        _order.fee = fee;
+        _order.orderPrice = itemInfo[_itemId].price;
+        _order.total = orderTotal;
+        _order.fee = orderFee;
         _order.isLive = true;
+        _order.created = block.number;
         _order.buyer = msg.sender;
         _order.seller = itemInfo[_itemId].owner;
-        _order.created = block.number;
-
+        
         orderInfo[_order.id] = _order;
 
         if (msg.value > total) {
@@ -219,23 +197,25 @@ contract Meta4Swap {
             require(sent, "Failed to Send Ether");
         }
 
-        emit OrderCreatedBuyer(
+        emit OrderCreated(
             _order.id,
             _order.itemId,
             _order.total,
-            _order.buyer
-        );
-        emit OrderCreatedSeller(
-            _order.id,
-            _order.itemId,
-            _order.total,
+            _order.buyer,
             _order.seller
         );
-
         return _order.id;
     }
 
-    //changing order states
+    function offer(_itemId) public returns (uint256) {
+        require(itemInfo[_itemId].isLive==true, "Not available");
+        require(offerInfo[msg.sender])
+
+    }
+
+    function acceptOffer(_offerId) {
+
+    }
 
     function complete(uint256 _orderId) public onlyCounterpart(_orderId) {
         require(orderInfo[_orderId].isLive == true, "Order isn't active");
