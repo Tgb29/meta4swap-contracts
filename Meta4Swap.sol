@@ -12,24 +12,27 @@ interface Meta4SwapToken {
 }
 
 contract Meta4Swap {
-    uint256 public itemCount;
+    //business logic
     uint256 public orderCount;
 
+    uint256 public fee; //2.5 == 250
+
+
+    uint256 public disputeWindow; //window for dispute settlement. time in block.number
+    //uint256 public voteThreshold; //number of votes needed for dispute. approved to handle dispute.
+    
+    uint256 public minFee; // the minimum order size to earn rewards
+    bool public rewardsLive;
+
+    //admin
     address public dao;
-    address public company;
     address public m4sToken;
     address public priceFeed;
 
-    uint256 public feeRate; //2.5 == 250
-    uint256 public disputeWindow; //window for dispute voting
-    uint256 public voteThreshold; //number of votes needed for dispute
-    uint256 public minFee; // the minimum order size to earn rewards
-    //bool variables
-    bool public rewardsLive;
     //rewards
-    uint256 buyerReward;
-    uint256 sellerReward;
-    uint256 companyReward;
+    uint256 buyerReward; // amount
+    uint256 sellerReward; // amount
+    uint256 daoReward; // dao
 
     struct Item {
         uint256 id;
@@ -44,19 +47,28 @@ contract Meta4Swap {
 
     struct Order {
         uint256 id;
+        address itemAddress;
         uint256 itemId;
+
         uint256 total;
         uint8 qty;
+        uint256 created;
+        uint256 fee;
+   
         uint256 price;
         uint256 chainLinkPrice;
+
         uint8 buyerState;
         uint8 sellerState;
+
         bool isLive;
         address buyer;
         address seller;
-        uint256 created;
-        uint256 fee;
-    }
+    
+     }
+
+        
+        
 
     struct Dispute {
         string buyerResponse;
@@ -93,13 +105,13 @@ contract Meta4Swap {
     mapping(address => mapping(uint256 => bool)) public ratingCheck;
 
     constructor() {
-        feeRate = 250;
+        fee = 250;
         disputeWindow = 10;
         minFee = 0;
         voteThreshold = 1;
         buyerReward = 1 ether;
         sellerReward = 1 ether;
-        companyReward = 1 ether;
+        daoReward = 1 ether;
 
         company = msg.sender;
         rewardsLive = true;
@@ -181,7 +193,7 @@ contract Meta4Swap {
 
         uint256 total = ((itemInfo[_itemId].price / _order.chainLinkPrice) *
             10**8) * _qty;
-        uint256 fee = (feeRate * total) / 10000;
+        uint256 fee = (fee * total) / 10000;
 
         require(msg.value >= total, "Amount paid is less than total");
 
@@ -273,7 +285,7 @@ contract Meta4Swap {
                     orderInfo[_orderId].seller,
                     sellerReward
                 );
-                Meta4SwapToken(m4sToken).mintReward(company, companyReward);
+                Meta4SwapToken(m4sToken).mintReward(company, daoReward);
             }
         }
 
@@ -429,8 +441,8 @@ contract Meta4Swap {
     {
         require(dao == msg.sender);
         if (_variable == 0) {
-            //edit feeRate
-            feeRate = _value;
+            //edit fee
+            fee = _value;
         } else if (_variable == 1) {
             //edit disputeWindow
             disputeWindow = _value;
@@ -492,7 +504,7 @@ contract Meta4Swap {
                 orderInfo[_orderId].buyer,
                 buyerReward
             );
-            Meta4SwapToken(m4sToken).mintReward(company, companyReward / 2);
+            Meta4SwapToken(m4sToken).mintReward(company, daoReward / 2);
             emit RatingUpdated(_orderId);
         } else if (msg.sender == orderInfo[_orderId].seller) {
             userProfile[orderInfo[_orderId].buyer].ratingSum += _rating;
@@ -502,7 +514,7 @@ contract Meta4Swap {
                 orderInfo[_orderId].seller,
                 sellerReward
             );
-            Meta4SwapToken(m4sToken).mintReward(company, companyReward / 2);
+            Meta4SwapToken(m4sToken).mintReward(company, daoReward / 2);
             emit RatingUpdated(_orderId);
         }
     }

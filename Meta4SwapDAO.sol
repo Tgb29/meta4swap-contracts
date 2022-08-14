@@ -24,6 +24,9 @@ interface Meta4Swap {
 }
 
 contract Meta4SwapDAO {
+
+    address admin // this address is the executor of the DAO.
+
     address public m4sToken;
     address public m4s;
     address public company;
