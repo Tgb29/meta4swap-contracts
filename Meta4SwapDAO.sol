@@ -17,55 +17,19 @@ interface Meta4SwapToken {
     ) external returns (bool);
 }
 
-interface Meta4Swap {
-    function updateRules(uint256 _variable, uint256 _value)
-        external
-        returns (bool);
-}
+//deploy this second
 
 contract Meta4SwapDAO {
 
-    address admin // this address is the executor of the DAO.
-
     address public m4sToken;
-    address public m4s;
-    address public company;
+    address public admin;
+    address public dao;
 
-    uint256 public proposalCount;
-
-    uint256 public proposalThreshold; //tokens needed to submit proposal
-    uint256 public proposalWindow;
-    uint256 public votingThreshold; // total votes needed to pass
-
-    struct Proposal {
-        uint256 id;
-        uint256 yesVotes;
-        uint256 noVotes;
-        uint256 created;
-        bool passed;
-        bool isLive;
-        address proposer;
-        uint256[2] proposition;
+    constructor(address _m4s) {
+        admin = msg.sender;
+        dao = address(this);
+        m4sToken = _m4s;
     }
-
-    struct Vote {
-        bool voted;
-        uint256 votes;
-        bool withdrawn;
-    }
-
-    mapping(uint256 => Proposal) proposals;
-    mapping(address => mapping(uint256 => Vote)) voteHistory;
-
-    event ProposalCreated(address _creator, uint256 _proposalId);
-
-    constructor() {
-        company = msg.sender;
-        proposalWindow = 0;
-        proposalThreshold = 0 ether;
-        votingThreshold = 0 ether;
-    }
-
     //for any token holder to use
     function redeem(uint256 _amount) public {
         require(
@@ -79,136 +43,27 @@ contract Meta4SwapDAO {
         Meta4SwapToken(m4sToken).burn(msg.sender, _amount);
     }
 
-    function createProposal(uint256 _variable, uint256 _value)
-        public
-        returns (uint256)
-    {
-        require(
-            Meta4SwapToken(m4sToken).balanceOf(msg.sender) > proposalThreshold,
-            "User doesn't have enough tokens"
-        );
-        proposalCount++;
-
-        Proposal memory _proposal;
-        _proposal.id = proposalCount;
-        _proposal.proposer = msg.sender;
-        _proposal.proposition = [_variable, _value];
-        _proposal.created = block.number;
-        _proposal.isLive = true;
-
-        proposals[proposalCount] = _proposal;
-
-        emit ProposalCreated(msg.sender, _proposal.id);
-
-        return _proposal.id;
-    }
-
-    function voteProposal(
-        uint256 _proposalId,
-        bool _support,
-        uint256 _amount
-    ) public {
-        require(
-            Meta4SwapToken(m4sToken).balanceOf(msg.sender) >= _amount,
-            "User doesn't have enough tokens"
-        );
-        require(proposals[_proposalId].isLive == true, "Proposal not live");
-        //commented out to make demo in hackathon easier
-        /*
-        require(
-            block.number - proposals[_proposalId].created < proposalWindow,
-            "Window closed"
-        );
-        */
-
-        Meta4SwapToken(m4sToken).transferFrom(
-            msg.sender,
-            address(this),
-            _amount
-        );
-
-        Vote memory _vote;
-        _vote.voted = true;
-        _vote.votes = _amount;
-        voteHistory[msg.sender][_proposalId] = _vote;
-
-        if (_support) {
-            proposals[_proposalId].yesVotes = _amount;
-        } else {
-            proposals[_proposalId].noVotes = _amount;
-        }
-    }
-
-    function withdrawVotes(uint256 _proposalId) public {
-        require(
-            proposals[_proposalId].isLive == false,
-            "Voting not closed yet"
-        );
-        require(
-            voteHistory[msg.sender][_proposalId].voted == true,
-            "User didn't vote on this proposal"
-        );
-        require(
-            voteHistory[msg.sender][_proposalId].withdrawn == false,
-            "User already withdrew"
-        );
-
-        Meta4SwapToken(m4sToken).transfer(
-            msg.sender,
-            voteHistory[msg.sender][_proposalId].votes
-        );
-        voteHistory[msg.sender][_proposalId].votes = 0;
-        voteHistory[msg.sender][_proposalId].withdrawn = true;
-    }
-
-    function executeProposal(uint256 _proposalId) public {
-        require(
-            proposals[_proposalId].isLive == true,
-            "Proposal already executed"
-        );
-        require(
-            block.number - proposals[_proposalId].created > proposalWindow,
-            "Window still open"
-        );
-
-        if (
-            proposals[_proposalId].yesVotes + proposals[_proposalId].noVotes >
-            votingThreshold &&
-            proposals[_proposalId].yesVotes > proposals[_proposalId].noVotes
-        ) {
-            proposals[_proposalId].passed = true;
-            Meta4Swap(m4s).updateRules(
-                proposals[_proposalId].proposition[0],
-                proposals[_proposalId].proposition[1]
-            );
-        }
-
-        proposals[_proposalId].isLive = false;
+    //this DAO contract is temporary. transferEarnings will be called when a new DAO contract is ready.
+    function transferEarnings(uint256 _amount) public {
+        require(msg.sender==admin, "Only admin can send money to new DAO");
+        (bool sent, bytes memory data) = dao.call{value: address(this).balance}("");
+        data;
+        require(sent, "Failed to Send Ether");
     }
 
     //Company controls
     function updateAddress(uint256 _value, address _newAddress) public {
-        require(msg.sender == company, "Only company can change address");
+        require(msg.sender == admin, "Only company can change address");
         if (_value == 0) {
-            //Company Address
-            company = _newAddress;
+            //Admin Address
+            admin = _newAddress;
         } else if (_value == 1) {
-            //Meta4Swap Address
-            m4s = _newAddress;
-        } else if (_value == 2) {
+            //new DAO Address
+            dao = _newAddress;
+        }else if (_value == 2) {
             //Meta4Swap Token Address
             m4sToken = _newAddress;
         }
     }
 
-    function updateControls(uint256 _control, uint256 _value) public {
-        require(msg.sender == company, "Only company can update");
-        if (_control == 0) {
-            proposalWindow = _value;
-        } else if (_control == 1) {
-            proposalThreshold = _value;
-        } else if (_control == 2) {
-            votingThreshold = _value;
-        }
-    }
 }

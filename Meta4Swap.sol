@@ -11,6 +11,8 @@ interface Meta4SwapToken {
     function balanceOf(address _address) external returns (uint256);
 }
 
+//deploy this third
+
 contract Meta4Swap {
     //business logic
     uint256 public orderCount;
@@ -18,6 +20,7 @@ contract Meta4Swap {
     uint256 public marketplaceFee; //2.5 == 250
     
     //admin
+    address public admin;
     address public dao;
     address public m4sToken;
     address public priceFeed;
@@ -57,20 +60,17 @@ contract Meta4Swap {
         address seller;
      }
 
-
     struct Dispute {
         string buyerResponse;
         string sellerResponse;
         uint256 created;
-        bool state;
+        bool isLive;
     }
 
     struct Profile {
         uint256 cancelled;
         uint256 completed;
         uint256 disputes;
-        uint256 ratingSum;
-        uint256 ratingCount;
     }
     
     mapping(uint256 => Item) public itemInfo; // itemId to Item struct mapping
@@ -83,14 +83,17 @@ contract Meta4Swap {
     
     mapping(address => mapping(uint256 => bool)) public ratingCheck; //check to prevent duplicate ratings
 
-    constructor() {
+    constructor(address _dao, address _m4sToken, address _priceFeed) {
         fee = 250;
         minFee = 0;
         buyerReward = 1 ether;
         sellerReward = 1 ether;
         daoReward = 1 ether;
-        dao = msg.sender;
+        admin = msg.sender;
         rewardsLive = true;
+        dao = _dao;
+        m4sToken = _m4sToken;
+        priceFeed = _priceFeed;
     }
 
     event ItemCreated(
@@ -107,19 +110,22 @@ contract Meta4Swap {
         uint256 orderId,
         uint256 itemId,
         uint256 price,
-        address orderType;
-        address buyer;
-        address seller;
+        address orderType,
+        address buyer,
+        address seller
     );
 
     event OrderUpdated(
         uint256 orderId
     );
 
+    event OfferCreated(
+        uint256 itemId,
+        address worker
+    );
+
     event DisputeCreated(uint256 orderId);
     event DisputeUpdated(uint256 orderId);
-
-    event RatingCreated(uint256 orderId);
 
     modifier onlyCounterpart(uint256 _orderId) {
         require(
@@ -207,13 +213,61 @@ contract Meta4Swap {
         return _order.id;
     }
 
-    function offer(_itemId) public returns (uint256) {
+    function offer(uint256 _itemId) public returns (uint256) {
         require(itemInfo[_itemId].isLive==true, "Not available");
-        require(offerInfo[msg.sender])
+        require(offerInfo[msg.sender][_itemId]==false, "User already made offer");
+
+        offerInfo[msg.sender][_itemId]=true;
+
+        emit OfferCreated(
+            _itemId,
+            msg.sender
+        );
 
     }
 
-    function acceptOffer(_offerId) {
+    function acceptOffer(uint _itemId, address _worker) public returns (uint256) {
+        require(msg.sender == itemInfo[_itemId].owner, "Only item owner can accept offer");
+        require(offerInfo[_worker][_itemId]==true, "Can only accept offers from workers who offered");
+
+        orderCount++;
+        Order memory _order;
+
+        _order.chainLinkPrice = uint256(getLatestPrice());
+        uint256 orderTotal = ((itemInfo[_itemId].itemPrice / _order.chainLinkPrice) *
+            10**8);
+        uint256 orderFee = (marketplaceFee * orderTotal) / 10000;
+        require(msg.value >= orderTotal, "Amount paid is less than total");
+
+        _order.id = orderCount;
+        _order.itemId = _itemId;
+        _order.orderPrice = itemInfo[_itemId].price;
+        _order.total = orderTotal;
+        _order.fee = orderFee;
+        _order.isLive = true;
+        _order.created = block.number;
+        _order.buyer = msg.sender;
+        _order.seller = _worker;
+        
+        orderInfo[_order.id] = _order;
+
+        if (msg.value > total) {
+            //send refund back to the user
+            (bool sent, bytes memory data) = msg.sender.call{
+                value: (msg.value - total)
+            }("");
+            data;
+            require(sent, "Failed to Send Ether");
+        }
+
+        emit OrderCreated(
+            _order.id,
+            _order.itemId,
+            _order.total,
+            _order.buyer,
+            _order.seller
+        );
+        return _order.id;
 
     }
 
@@ -265,7 +319,7 @@ contract Meta4Swap {
                     orderInfo[_orderId].seller,
                     sellerReward
                 );
-                Meta4SwapToken(m4sToken).mintReward(company, daoReward);
+                Meta4SwapToken(m4sToken).mintReward(admin, daoReward);
             }
         }
 
@@ -319,82 +373,30 @@ contract Meta4Swap {
         require(disputeInfo[_orderId].isLive == true, "Dispute isn't live");
         if (msg.sender == orderInfo[_orderId].buyer) {
             disputeInfo[_orderId].buyerResponse = _ipfsHash;
-        } else if (msg.sender == orderInfo[_orderId].buyer) {
+        } else if (msg.sender == orderInfo[_orderId].seller) {
             disputeInfo[_orderId].sellerResponse = _ipfsHash;
         }
 
         emit DisputeUpdated(_orderId);
     }
 
-    function vote(uint256 _orderId, uint256 _vote) public returns (bool) {
-        require(disputeInfo[_orderId].isLive == true, "Dispute isn't live");
-        require(voteCheck[msg.sender][_orderId] == false, "User already voted");
-        require(
-            Meta4SwapToken(m4sToken).balanceOf(msg.sender) > 0,
-            "need m4s tokens to vote"
-        );
 
-        if ((block.number - disputeInfo[_orderId].created) > disputeWindow) {
-            if (
-                disputeInfo[_orderId].buyerVotes +
-                    disputeInfo[_orderId].sellerVotes >
-                voteThreshold
-            ) {
-                return false;
-            }
-        }
-
-        //buyer == 0
-        if (_vote == 0) {
-            disputeInfo[_orderId].buyerVotes += Meta4SwapToken(m4sToken)
-                .balanceOf(msg.sender);
-        }
-        //seller == 1
-        else if (_vote == 1) {
-            disputeInfo[_orderId].sellerVotes += Meta4SwapToken(m4sToken)
-                .balanceOf(msg.sender);
-        }
-
-        voteCheck[msg.sender][_orderId] == true;
-
-        return true;
-    }
-
-    function resolve(uint256 _orderId) public {
+    function resolve(uint256 _orderId, address _winner) public {
         require(
             disputeInfo[_orderId].isLive == true,
             "Dispute isn't live or is already resolved."
         );
-        require(
-            disputeInfo[_orderId].buyerVotes +
-                disputeInfo[_orderId].sellerVotes >
-                voteThreshold,
-            "Not enough votes"
-        );
-        require(
-            (block.number - disputeInfo[_orderId].created) > disputeWindow,
-            "Window for voting still open"
-        );
-        require(
-            disputeInfo[_orderId].buyerVotes !=
-                disputeInfo[_orderId].sellerVotes,
-            "Voting can't end in tie"
-        );
+        require(msg.sender==admin, "Only DAO address can resolve disputes");
 
-        if (
-            disputeInfo[_orderId].buyerVotes > disputeInfo[_orderId].sellerVotes
-        ) {
+        if (_winner==orderInfo[_orderId].buyer) {
             //transfer money back to buyer
             (bool sent, bytes memory data) = orderInfo[_orderId].buyer.call{
                 value: orderInfo[_orderId].total
             }("");
             data;
             require(sent, "Failed to Send Ether");
-
             orderInfo[_orderId].fee = 0;
-            userProfile[orderInfo[_orderId].buyer].disputeWin += 1;
-            userProfile[orderInfo[_orderId].seller].disputeLose += 1;
-        } else {
+        } else if (_winner==orderInfo[_orderId].seller) {
             //transfer money to selller
             (bool sent, bytes memory data) = orderInfo[_orderId].seller.call{
                 value: (orderInfo[_orderId].total - orderInfo[_orderId].fee)
@@ -402,12 +404,14 @@ contract Meta4Swap {
             data;
             require(sent, "Failed to Send Ether");
             _transferEarnings(orderInfo[_orderId].fee);
-            userProfile[orderInfo[_orderId].buyer].disputeLose += 1;
-            userProfile[orderInfo[_orderId].seller].disputeWin += 1;
+
         }
 
         orderInfo[_orderId].sellerState = 4;
         orderInfo[_orderId].buyerState = 4;
+
+        userProfile[orderInfo[_orderId].buyer].disputes +=1;
+        userProfile[orderInfo[_orderId].seller].disputes +=1;
 
         disputeInfo[_orderId].isLive = false;
 
@@ -422,31 +426,26 @@ contract Meta4Swap {
         require(dao == msg.sender);
         if (_variable == 0) {
             //edit fee
-            fee = _value;
-        } else if (_variable == 1) {
-            //edit disputeWindow
-            disputeWindow = _value;
-        } else if (_variable == 2) {
-            //edit voteThreshold
-            voteThreshold = _value;
-        } else if (_variable == 3) {
+            marketplaceFee = _value;
+        } 
+         else if (_variable == 1) {
             //edit minFee
             minFee = _value;
-        }
+        } 
 
         return true;
     }
 
-    //Company controls
+    //Admin controls
     function updateAddress(uint256 _value, address _newAddress) public {
-        require(msg.sender == company, "Only company can change address");
+        require(msg.sender == admin, "Only company can change address");
         if (_value == 0) {
             //DAO Address
             dao = _newAddress;
         } else if (_value == 1) {
-            //Company Address
-            company = _newAddress;
-        } else if (_value == 2) {
+            //Token Address
+            admin = _newAddress;
+        }else if (_value == 2) {
             //Token Address
             m4sToken = _newAddress;
         } else if (_value == 3) {
@@ -457,46 +456,10 @@ contract Meta4Swap {
 
     function updateRewardsisLive(bool _state) public {
         require(
-            msg.sender == company,
+            msg.sender == admin,
             "Only company can update rewards status"
         );
         rewardsLive = _state;
-    }
-
-    //rate order
-    function rate(uint256 _orderId, uint8 _rating)
-        public
-        onlyCounterpart(_orderId)
-    {
-        require(_rating > 0 && _rating < 6, "rating needs to be between 1-5");
-        require(
-            ratingCheck[msg.sender][_orderId] == false,
-            "Rating already left"
-        );
-
-        if (msg.sender == orderInfo[_orderId].buyer) {
-            itemInfo[orderInfo[_orderId].itemId].ratingSum += _rating;
-            itemInfo[orderInfo[_orderId].itemId].ratingCount += 1;
-            userProfile[orderInfo[_orderId].seller].ratingSum += _rating;
-            userProfile[orderInfo[_orderId].seller].ratingCount += 1;
-            ratingCheck[msg.sender][_orderId] = true;
-            Meta4SwapToken(m4sToken).mintReward(
-                orderInfo[_orderId].buyer,
-                buyerReward
-            );
-            Meta4SwapToken(m4sToken).mintReward(company, daoReward / 2);
-            emit RatingUpdated(_orderId);
-        } else if (msg.sender == orderInfo[_orderId].seller) {
-            userProfile[orderInfo[_orderId].buyer].ratingSum += _rating;
-            userProfile[orderInfo[_orderId].buyer].ratingCount += 1;
-            ratingCheck[msg.sender][_orderId] = true;
-            Meta4SwapToken(m4sToken).mintReward(
-                orderInfo[_orderId].seller,
-                sellerReward
-            );
-            Meta4SwapToken(m4sToken).mintReward(company, daoReward / 2);
-            emit RatingUpdated(_orderId);
-        }
     }
 
     //edit Item
@@ -535,7 +498,7 @@ contract Meta4Swap {
 
     //internal
     function _transferEarnings(uint256 _amount) internal {
-        (bool sent, bytes memory data) = company.call{value: _amount}("");
+        (bool sent, bytes memory data) = dao.call{value: _amount}("");
         data;
         require(sent, "Failed to Send Ether");
     }

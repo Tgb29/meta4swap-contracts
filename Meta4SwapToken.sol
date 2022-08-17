@@ -4,14 +4,15 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
+//deploy this contract first
+
 contract Meta4SwapToken is ERC20 {
     mapping(address => bool) public marketplaces;
-    address public dao;
-    address public company;
+    address public admin;
 
     constructor(uint256 initialSupply) ERC20("Meta4Swap", "M4S") {
         _mint(msg.sender, initialSupply);
-        company = msg.sender;
+        admin = msg.sender;
     }
 
     //only marketplaces can mint
@@ -32,18 +33,12 @@ contract Meta4SwapToken is ERC20 {
 
     //update functions
     function updateMarketplaces(address _marketplace, bool _approved) public {
-        require(msg.sender == company, "Only the DAO can update marketplaces");
+        require(msg.sender == admin, "Only the admin can update marketplaces");
         marketplaces[_marketplace] = _approved;
     }
 
     function updateAddress(uint256 _value, address _newAddress) public {
-        require(msg.sender == company, "Only company can change address");
-        if (_value == 0) {
-            //Company Address
-            company = _newAddress;
-        } else if (_value == 1) {
-            //DAO Address
-            dao = _newAddress;
-        }
+        require(msg.sender == admin, "Only admin can change address");
+        admin = _newAddress;
     }
 }
