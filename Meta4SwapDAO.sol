@@ -44,7 +44,7 @@ contract Meta4SwapDAO {
     }
 
     //this DAO contract is temporary. transferEarnings will be called when a new DAO contract is ready.
-    function transferEarnings(uint256 _amount) public {
+    function transferEarnings() public {
         require(msg.sender==admin, "Only admin can send money to new DAO");
         (bool sent, bytes memory data) = dao.call{value: address(this).balance}("");
         data;

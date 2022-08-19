@@ -84,7 +84,7 @@ contract Meta4Swap {
     mapping(address => mapping(uint256 => bool)) public ratingCheck; //check to prevent duplicate ratings
 
     constructor(address _dao, address _m4sToken, address _priceFeed) {
-        fee = 250;
+        marketplaceFee = 250;
         minFee = 0;
         buyerReward = 1 ether;
         sellerReward = 1 ether;
@@ -110,7 +110,7 @@ contract Meta4Swap {
         uint256 orderId,
         uint256 itemId,
         uint256 price,
-        address orderType,
+        uint256 serviceType,
         address buyer,
         address seller
     );
@@ -177,15 +177,15 @@ contract Meta4Swap {
         Order memory _order;
 
         _order.chainLinkPrice = uint256(getLatestPrice());
-        uint256 orderTotal = ((itemInfo[_itemId].itemPrice / _order.chainLinkPrice) *
+        uint256 orderTotal = ((itemInfo[_itemId].price / _order.chainLinkPrice) *
             10**8);
         uint256 orderFee = (marketplaceFee * orderTotal) / 10000;
         require(msg.value >= orderTotal, "Amount paid is less than total");
 
         _order.id = orderCount;
         _order.itemId = _itemId;
-        _order.orderPrice = itemInfo[_itemId].price;
-        _order.total = orderTotal;
+        _order.itemPrice = itemInfo[_itemId].price;
+        _order.orderTotal = orderTotal;
         _order.fee = orderFee;
         _order.isLive = true;
         _order.created = block.number;
@@ -194,10 +194,10 @@ contract Meta4Swap {
         
         orderInfo[_order.id] = _order;
 
-        if (msg.value > total) {
+        if (msg.value > orderTotal) {
             //send refund back to the user
             (bool sent, bytes memory data) = msg.sender.call{
-                value: (msg.value - total)
+                value: (msg.value - orderTotal)
             }("");
             data;
             require(sent, "Failed to Send Ether");
@@ -206,14 +206,15 @@ contract Meta4Swap {
         emit OrderCreated(
             _order.id,
             _order.itemId,
-            _order.total,
+            _order.orderTotal,
+            itemInfo[_itemId].serviceType,
             _order.buyer,
             _order.seller
         );
         return _order.id;
     }
 
-    function offer(uint256 _itemId) public returns (uint256) {
+    function offer(uint256 _itemId) public {
         require(itemInfo[_itemId].isLive==true, "Not available");
         require(offerInfo[msg.sender][_itemId]==false, "User already made offer");
 
@@ -226,7 +227,7 @@ contract Meta4Swap {
 
     }
 
-    function acceptOffer(uint _itemId, address _worker) public returns (uint256) {
+    function acceptOffer(uint _itemId, address _worker) public payable returns (uint256) {
         require(msg.sender == itemInfo[_itemId].owner, "Only item owner can accept offer");
         require(offerInfo[_worker][_itemId]==true, "Can only accept offers from workers who offered");
 
@@ -234,15 +235,15 @@ contract Meta4Swap {
         Order memory _order;
 
         _order.chainLinkPrice = uint256(getLatestPrice());
-        uint256 orderTotal = ((itemInfo[_itemId].itemPrice / _order.chainLinkPrice) *
+        uint256 orderTotal = ((itemInfo[_itemId].price / _order.chainLinkPrice) *
             10**8);
         uint256 orderFee = (marketplaceFee * orderTotal) / 10000;
         require(msg.value >= orderTotal, "Amount paid is less than total");
 
         _order.id = orderCount;
         _order.itemId = _itemId;
-        _order.orderPrice = itemInfo[_itemId].price;
-        _order.total = orderTotal;
+        _order.itemPrice = itemInfo[_itemId].price;
+        _order.orderTotal = orderTotal;
         _order.fee = orderFee;
         _order.isLive = true;
         _order.created = block.number;
@@ -251,10 +252,10 @@ contract Meta4Swap {
         
         orderInfo[_order.id] = _order;
 
-        if (msg.value > total) {
+        if (msg.value > orderTotal) {
             //send refund back to the user
             (bool sent, bytes memory data) = msg.sender.call{
-                value: (msg.value - total)
+                value: (msg.value - orderTotal)
             }("");
             data;
             require(sent, "Failed to Send Ether");
@@ -263,7 +264,8 @@ contract Meta4Swap {
         emit OrderCreated(
             _order.id,
             _order.itemId,
-            _order.total,
+            _order.orderTotal,
+            itemInfo[_itemId].serviceType,
             _order.buyer,
             _order.seller
         );
@@ -293,7 +295,7 @@ contract Meta4Swap {
             orderInfo[_orderId].isLive = false;
             //pay seller
             (bool sent, bytes memory data) = orderInfo[_orderId].seller.call{
-                value: (orderInfo[_orderId].total - orderInfo[_orderId].fee)
+                value: (orderInfo[_orderId].orderTotal - orderInfo[_orderId].fee)
             }("");
             data;
             require(sent, "Failed to Send Ether");
@@ -301,14 +303,8 @@ contract Meta4Swap {
             _transferEarnings(orderInfo[_orderId].fee);
             //update buyer
             userProfile[orderInfo[_orderId].buyer].completed += 1;
-            userProfile[orderInfo[_orderId].buyer].expended += orderInfo[
-                _orderId
-            ].total;
             //update seller
             userProfile[orderInfo[_orderId].seller].completed += 1;
-            userProfile[orderInfo[_orderId].seller].earnings +=
-                orderInfo[_orderId].total -
-                orderInfo[_orderId].fee;
             //pay rewards
             if (rewardsLive && orderInfo[_orderId].fee >= minFee) {
                 Meta4SwapToken(m4sToken).mintReward(
@@ -339,7 +335,7 @@ contract Meta4Swap {
         userProfile[orderInfo[_orderId].seller].cancelled += 1;
 
         (bool sent, bytes memory data) = orderInfo[_orderId].buyer.call{
-            value: (orderInfo[_orderId].total)
+            value: (orderInfo[_orderId].orderTotal)
         }("");
         data;
         require(sent, "Failed to Send Ether");
@@ -391,7 +387,7 @@ contract Meta4Swap {
         if (_winner==orderInfo[_orderId].buyer) {
             //transfer money back to buyer
             (bool sent, bytes memory data) = orderInfo[_orderId].buyer.call{
-                value: orderInfo[_orderId].total
+                value: orderInfo[_orderId].orderTotal
             }("");
             data;
             require(sent, "Failed to Send Ether");
@@ -399,7 +395,7 @@ contract Meta4Swap {
         } else if (_winner==orderInfo[_orderId].seller) {
             //transfer money to selller
             (bool sent, bytes memory data) = orderInfo[_orderId].seller.call{
-                value: (orderInfo[_orderId].total - orderInfo[_orderId].fee)
+                value: (orderInfo[_orderId].orderTotal - orderInfo[_orderId].fee)
             }("");
             data;
             require(sent, "Failed to Send Ether");

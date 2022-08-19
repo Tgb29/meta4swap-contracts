@@ -37,7 +37,7 @@ contract Meta4SwapToken is ERC20 {
         marketplaces[_marketplace] = _approved;
     }
 
-    function updateAddress(uint256 _value, address _newAddress) public {
+    function updateAdmin(address _newAddress) public {
         require(msg.sender == admin, "Only admin can change address");
         admin = _newAddress;
     }
