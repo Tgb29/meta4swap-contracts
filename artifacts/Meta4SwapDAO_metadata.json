@@ -107,7 +107,7 @@
 	},
 	"settings": {
 		"compilationTarget": {
-			"Meta4SwapDAO.sol": "Meta4SwapDAO"
+			"Meta4SwapDAO_flat.sol": "Meta4SwapDAO"
 		},
 		"evmVersion": "london",
 		"libraries": {},
@@ -121,12 +121,11 @@
 		"remappings": []
 	},
 	"sources": {
-		"Meta4SwapDAO.sol": {
-			"keccak256": "0x22e55d87c18e67011537747bfad93a787737b0e8db8cbafb24086e7730f25862",
-			"license": "MIT",
+		"Meta4SwapDAO_flat.sol": {
+			"keccak256": "0x1a7c10cca83e5882fd375c5ba6bd54b4e8113620376638ad970bc06588def16f",
 			"urls": [
-				"bzz-raw://d97e6a657ef031abe40517cdee0dca249ed136868554eff7984b56363c92aa56",
-				"dweb:/ipfs/QmaSutoYwPHQr9PGR3TWkdqBTC7ARQwdTn5Tbk764NmYfo"
+				"bzz-raw://0ab50b1175ddb92fffcfdbf8690b601b8cc8ee15301c17d474598785f282fdfb",
+				"dweb:/ipfs/QmY5hmnaUXiK8pAQ3T38RXbMt4h7iHPTnFKR6w5GAveGbx"
 			]
 		}
 	},
