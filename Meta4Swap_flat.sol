@@ -11,6 +11,9 @@ interface AggregatorV3Interface {
 
   function version() external view returns (uint256);
 
+  // getRoundData and latestRoundData should both raise "No data present"
+  // if they do not have data to report, instead of returning unset values
+  // which could be misinterpreted as actual reported values.
   function getRoundData(uint80 _roundId)
     external
     view
@@ -149,7 +152,8 @@ contract Meta4Swap {
         uint256 price,
         uint256 serviceType,
         address buyer,
-        address seller
+        address seller,
+        string metadata
     );
 
     event OrderUpdated(
@@ -209,6 +213,7 @@ contract Meta4Swap {
             itemInfo[_itemId].isLive == true,
             "Item not for sale or doesn't exist."
         );
+        require(msg.sender!=itemInfo[_itemId].owner, "Buyer cannot be owner");
 
         orderCount++;
         Order memory _order;
@@ -246,7 +251,8 @@ contract Meta4Swap {
             _order.orderTotal,
             itemInfo[_itemId].serviceType,
             _order.buyer,
-            _order.seller
+            _order.seller,
+            itemInfo[_itemId].metadata
         );
         return _order.id;
     }
@@ -254,6 +260,8 @@ contract Meta4Swap {
     function offer(uint256 _itemId) public {
         require(itemInfo[_itemId].isLive==true, "Not available");
         require(offerInfo[msg.sender][_itemId]==false, "User already made offer");
+        require(itemInfo[_itemId].serviceType==1, "Only tasks can receive offers");
+        require(msg.sender!=itemInfo[_itemId].owner, "Buyer cannot be owner");
 
         offerInfo[msg.sender][_itemId]=true;
 
@@ -304,7 +312,8 @@ contract Meta4Swap {
             _order.orderTotal,
             itemInfo[_itemId].serviceType,
             _order.buyer,
-            _order.seller
+            _order.seller,
+            itemInfo[_itemId].metadata
         );
         return _order.id;
 

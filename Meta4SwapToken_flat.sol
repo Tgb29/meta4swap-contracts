@@ -560,7 +560,7 @@ contract Meta4SwapToken is ERC20 {
         return true;
     }
 
-    //update functions
+    //This enables Meta4Swap.sol to call functions in this contract
     function updateMarketplaces(address _marketplace, bool _approved) public {
         require(msg.sender == admin, "Only the admin can update marketplaces");
         marketplaces[_marketplace] = _approved;

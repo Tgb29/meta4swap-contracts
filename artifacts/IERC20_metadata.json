@@ -245,10 +245,10 @@
 	},
 	"sources": {
 		"Meta4SwapToken_flat.sol": {
-			"keccak256": "0x59db8e4f47c3946c603113aee1f89d78cb3c374989a09db724aeb5348bd87469",
+			"keccak256": "0x213b892943f03bfbdfa518d19a8d4064c9f424e7b5813f3243e1901fbc6383ef",
 			"urls": [
-				"bzz-raw://eb25d7cf1a591642a1639d2eef3f91bf3738e52a47bfb54edba890baef9c7d89",
-				"dweb:/ipfs/QmSoXch5Lg24pPFzSSobK49sPpMhiqmpwqohdadYhWk5m7"
+				"bzz-raw://7f070fd60ebb3208eea037762deeab0a7de87d14785ab8e964336e76de680ddd",
+				"dweb:/ipfs/QmSjKKpNQbZFAbgSq8BtfnydkEVqYdeDRoKKVnoGPeQa5U"
 			]
 		}
 	},

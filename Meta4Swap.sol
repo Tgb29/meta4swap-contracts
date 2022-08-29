@@ -212,7 +212,7 @@ contract Meta4Swap {
             itemInfo[_itemId].serviceType,
             _order.buyer,
             _order.seller,
-            itemInfo[_itemId].metadata,
+            itemInfo[_itemId].metadata
         );
         return _order.id;
     }
@@ -272,7 +272,8 @@ contract Meta4Swap {
             _order.orderTotal,
             itemInfo[_itemId].serviceType,
             _order.buyer,
-            _order.seller
+            _order.seller,
+            itemInfo[_itemId].metadata
         );
         return _order.id;
 
