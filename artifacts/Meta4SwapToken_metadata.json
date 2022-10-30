@@ -62,7 +62,7 @@
 	},
 	"settings": {
 		"compilationTarget": {
-			"Meta4Swap_flat.sol": "Meta4SwapToken"
+			"Meta4Swap.sol": "Meta4SwapToken"
 		},
 		"evmVersion": "london",
 		"libraries": {},
@@ -76,11 +76,20 @@
 		"remappings": []
 	},
 	"sources": {
-		"Meta4Swap_flat.sol": {
-			"keccak256": "0x3784f4914ff1dd19daae21e5237248ce6c9d1accd6dba69ccbc9c5c5bd4cb836",
+		"@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol": {
+			"keccak256": "0x6e6e4b0835904509406b070ee173b5bc8f677c19421b76be38aea3b1b3d30846",
+			"license": "MIT",
 			"urls": [
-				"bzz-raw://5901b5975fc39d991233bf554cbeb12f571f4c4e222b30b2db2cf2518b7cf012",
-				"dweb:/ipfs/QmQp6TYWPcZn2sWwBfnEh8Rv8k4rHDmPnewDnLAKir3ZcU"
+				"bzz-raw://b3beaa37ee61e4ab615e250fbf01601ae481de843fd0ef55e6b44fd9d5fff8a7",
+				"dweb:/ipfs/QmeZUVwd26LzK4Mfp8Zba5JbQNkZFfTzFu1A6FVMMZDg9c"
+			]
+		},
+		"Meta4Swap.sol": {
+			"keccak256": "0x7f490665b315ac26b3834b4992c0d3294f965a5ff7cf898cbb7cb0cebc46e007",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://57f604a98209fbccbf9405b25529bbe64aaef1ce716c4d0bcfd9fc702f235419",
+				"dweb:/ipfs/QmXvtSZAuSoUM6An7vK2v3tb2RMMe3Ga21Bo6RPTxaWcBQ"
 			]
 		}
 	},
